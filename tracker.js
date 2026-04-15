@@ -1,3 +1,249 @@
+<head>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f4f4;
+  margin: 0;
+  color: #222;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 15px;
+}
+
+#topBar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 15px;
+}
+
+select, button {
+  padding: 8px;
+  font-weight: bold;
+}
+
+#cards {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 768px) {
+  #cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 1400px) {
+  #cards { grid-template-columns: repeat(3, 1fr); }
+}
+
+.card {
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.cardHeader {
+  display: flex;
+  justify-content: space-between;
+  font-weight: bold;
+  font-size: 15px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e6e6e6;
+}
+
+.bar {
+  height: 10px;
+  background: #e2e2e2;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.barFill {
+  height: 100%;
+  background: #6b6b6b;
+  transition: width 0.35s ease;
+}
+
+.manaRow {
+  font-size: 12px;
+  margin-top: 6px;
+  opacity: 0.85;
+}
+
+.cardBody {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.spellGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  align-content: start;
+}
+
+.spellGrid button {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+
+  width: 100%;
+  aspect-ratio: 1 / 1;
+
+  font-size: 14px;
+  font-weight: bold;
+  border: 1px solid #cfcfcf;
+  background: #fafafa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.spellGrid button:hover { background: #eeeeee; transform: translateY(-1px); }
+.spellGrid button:active { background: #e2e2e2; transform: translateY(0px); }
+
+.typePanel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.typeHeader {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  text-align: center;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.typeCol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.typeTag {
+  background: #eeeeee;
+  border: 1px solid #d6d6d6;
+  border-radius: 7px;
+  padding: 7px;
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.typeTag:hover { background: #e6e6e6; }
+.typeTag.active { background: #dcdcdc; box-shadow: inset 0 0 8px rgba(255,0,0,0.9); }
+
+.compoundBtn {
+  font-size: 10px;
+  padding: 4px 6px;
+  border: 1px solid #333;
+  border-radius: 6px;
+  opacity: 0.6;
+}
+
+.compoundBtn.glow { box-shadow: 0 0 6px #aaa; opacity: 0.9; }
+.compoundBtn.active { background: #6b6b6b; color: white; opacity: 1; }
+
+/* MATCHING MAGIC ATTUNEMENTS */
+.card.matchingType {
+  box-shadow: 0 0 10px rgba(100,150,255,0.45);
+  border-color: #7fa8ff;
+}
+
+/* COMPOUND MAGIC */
+#compoundSection{
+  margin-top:20px;
+  padding-top:10px;
+  border-top:2px solid #d0d0d0;
+}
+
+.compoundHeader{
+  font-weight:bold;
+  margin-bottom:8px;
+  text-align:center;
+}
+
+#compoundGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
+  gap:8px;
+}
+
+.compoundCard{
+  border:1px solid #bbb;
+  border-radius:8px;
+  padding:6px;
+  text-align:center;
+  font-size:11px;
+  background:#f9f9f9;
+}
+
+.compoundCard.active{
+  background:#6b6b6b;
+  color:white;
+}
+
+.compoundTypes{
+  font-size:10px;
+  opacity:0.7;
+  margin-top:2px;
+}
+  
+/* MANUAL CAPACITY CHANGES */
+.capacityControls{
+  display:flex;
+  gap:4px;
+  align-items:center;
+}
+
+.capacityControls button{
+  font-size:10px;
+  padding:2px 6px;
+  border:1px solid #aaa;
+  border-radius:6px;
+  cursor:pointer;
+}
+
+.capacityControls span{
+  font-size:11px;
+  opacity:0.8;
+  margin:0 4px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="topBar">
+  <select id="attunementSelect"></select>
+  <input id="startManaInput" type="number" min="1" value="20" style="width:80px" />
+  <button onclick="addAttunement()">Add</button>
+  <button onclick="refillHalf()">Half Refill</button>
+  <button onclick="refillFull()">Full Refill</button>
+</div>
+
+<div id="cards"></div>
+
+ <div id="compoundSection">
+  <div class="compoundHeader">
+    Available Compound Magic
+  </div>
+
+  <div id="compoundGrid"></div>
+</div>
+  
+<script>
 const SPELL_COSTS = {1:1,2:3,3:12,4:20,5:72,6:120,7:460,8:720,9:2600};
 
 const BASE_TYPES = ["Air","Earth","Fire","Water","Light","Umbral","Death","Life","Motion","Enhance","Perceive","Mental"];
@@ -145,7 +391,7 @@ function getGrowthRate(maxMana){
   if(maxMana < 12960) return 800;
   if(maxMana < 77760) return 1600;
   if(maxMana < 466560) return 3200;
-  return Infinity;
+  return 3200
 }
   
 const MAX_MANA_CAP = 500000;
@@ -217,90 +463,179 @@ function addAttunement(){
   render();
 }
 
+/* ATTUNEMENT GROWTH */
 function cast(attName, level){
 
   const caster = attunements[attName];
+  if (!caster) return;
+
   const cost = SPELL_COSTS[level];
 
   const selectedGlobal = getSelectedTypesGlobal();
   const spellTypes = [...selectedGlobal];
 
-  if(spellTypes.length === 0) return;
-  if(!caster) return;
+  if (spellTypes.length === 0) return;
+  
+  const isCompound = spellTypes.length > 1;
 
-  const typeSpend = cost / spellTypes.length;
+// ------------------------------------
+// STEP 1 — find contributors
+// ------------------------------------
 
-  // track total mana loss per attunement
-  const manaLoss = new Map();
+const contributors = new Set();
 
-  // track growth per attunement
-  const growthGain = new Map();
+// caster must ALWAYS be included if valid
+{
+  const unlocked =
+    isTopazOrHigher(caster.maxMana);
 
-  for(const t of spellTypes){
+  const casterTypes =
+    getUnlockedTypes(caster, unlocked);
 
-    // find all attunements that use this type
-    const owners = Object.values(attunements).filter(att =>
-      att.selectedTypes.includes(t)
+  const casterCanCast =
+    [...casterTypes].some(t =>
+      spellTypes.includes(t)
     );
 
-    if(owners.length === 0) continue;
+  if (!casterCanCast) return;
 
-    const share = typeSpend / owners.length;
-
-    for(const att of owners){
-
-      // mana drain per type participation
-      manaLoss.set(att.name,
-        (manaLoss.get(att.name) || 0) + share
-      );
-
-      // growth per type participation
-      growthGain.set(att.name,
-        (growthGain.get(att.name) || 0) + share
-      );
-    }
-  }
-
-  // apply mana + growth
-for(const [name, loss] of manaLoss.entries()){
-  const att = attunements[name];
-
-  const roundedLoss = Math.ceil(loss);
-
-  att.mana -= roundedLoss;
-  att.spent += roundedLoss;
+  contributors.add(caster);
 }
 
-for(const att of Object.values(attunements)){
+// ONLY share contributors in compound mode
+if (spellTypes.length > 1) {
 
-  // only attunements that actually participate in this cast
-  const relevantTypes = att.selectedTypes.filter(t =>
-    spellTypes.includes(t)
-  );
+  Object.values(attunements).forEach(att => {
 
-  if(relevantTypes.length === 0) continue;
+    if (att === caster) return;
 
-  // each attunement contributes ONCE, not per type
+    const sharesSelected =
+      att.selectedTypes.some(t =>
+        spellTypes.includes(t)
+      );
+
+    if (sharesSelected){
+      contributors.add(att);
+    }
+
+  });
+}
+
+const contributorList =
+  Array.from(contributors);
+
+const costPerContributor =
+  cost / contributorList.length;
+  
+  // prevent negative mana BEFORE anything happens
+for (const att of contributors) {
+  if (att.mana < Math.ceil(costPerContributor)) {
+    return; // abort cast entirely
+  }
+}
+
+  // ------------------------------------
+  // STEP 2 — build type pools
+  // ------------------------------------
+
+  const typePool = new Map();
+
+  for (const att of contributors){
+
+    const sharedTypes =
+      att.selectedTypes.filter(t =>
+        spellTypes.includes(t)
+      );
+
+    if (sharedTypes.length === 0) continue;
+
+    const perType =
+      costPerContributor /
+      sharedTypes.length;
+
+    for (const t of sharedTypes){
+
+      typePool.set(
+        t,
+        (typePool.get(t) || 0) + perType
+      );
+
+    }
+
+  }
+
+  // ------------------------------------
+  // STEP 3 — apply mana cost
+  // ------------------------------------
+
+  for (const att of contributors){
+
+    const loss =
+      Math.ceil(costPerContributor);
+
+    att.mana -= loss;
+    att.spent += loss;
+
+  }
+
+// ------------------------------------
+// STEP 4 — apply growth to unlocked types only
+// ------------------------------------
+
+for (const att of Object.values(attunements)){
+
+  let totalGrowth = 0;
+
+  const unlocked =
+    isTopazOrHigher(att.maxMana);
+
+  const unlockedTypes =
+    getUnlockedTypes(att, unlocked);
+
+  // Only check currently available types
+  for (const t of unlockedTypes){
+
+    const pool = typePool.get(t);
+
+    if (pool){
+      totalGrowth += pool;
+    }
+
+  }
+
+  if (totalGrowth === 0) continue;
+
   const gain =
-    cost / getGrowthRate(att.maxMana);
+    totalGrowth /
+    getGrowthRate(att.maxMana);
 
   att.growth += gain;
 
-  while(att.growth >= 1){
+  while (att.growth >= 1){
+
     att.growth -= 1;
+
     att.maxMana += 1;
     att.mana += 1;
 
-    if(att.maxMana >= MAX_MANA_CAP){
+    if (att.maxMana >= MAX_MANA_CAP){
+
       att.maxMana = MAX_MANA_CAP;
-      att.mana = Math.min(att.mana, MAX_MANA_CAP);
+
+      att.mana =
+        Math.min(att.mana, MAX_MANA_CAP);
+
       att.growth = 0;
       break;
+
     }
+
   }
+
 }
 
   render();
+
 }
 
 /* ---------------- UI ---------------- */
@@ -332,13 +667,18 @@ if(att.selectedTypes.length === 2){
   }
   else{
 
-    // add new selection
-    att.selectedTypes.push(type);
+// prevent duplicate type selection anywhere globally
+const alreadyUsed = globalTypeQueue.some(obj => obj.type === type);
 
-    globalTypeQueue.push({
-      att: att.name,
-      type: type
-    });
+if (alreadyUsed) return; // block duplicate selection entirely
+
+// add new selection
+att.selectedTypes.push(type);
+
+globalTypeQueue.push({
+  att: att.name,
+  type: type
+});
 
     // enforce max 2 globally
     if(globalTypeQueue.length > 2){
@@ -643,8 +983,13 @@ for(let l=1;l<=9;l++){
   btn.innerHTML =
     `<div>${l}</div><div style="font-size:10px">(${SPELL_COSTS[l]})</div>`;
 
-  const typeMatch =
-    Object.keys(entry).some(t => selectedGlobal.has(t));
+const unlockedTypes =
+  getUnlockedTypes(att, unlocked);
+
+const typeMatch =
+  [...unlockedTypes].some(t =>
+    selectedGlobal.has(t)
+  );
 
   const levelAllowed = l <= maxLevel;
 
@@ -675,14 +1020,17 @@ for(let l=1;l<=9;l++){
       if(!unlocked && value !== 1) return;
       if(unlocked && value !== 1 && value !== 3) return;
 
-      const div = document.createElement("div");
-      div.className = "typeTag";
+const div = document.createElement("div");
+div.className = "typeTag";
 
-      if(att.selectedTypes.includes(t))
-        div.classList.add("active");
+const isSelected = att.selectedTypes.includes(t);
 
-      div.textContent = t;
-      div.onclick = () => toggleType(att, t);
+if (isSelected) {
+  div.classList.add("active");
+}
+
+div.textContent = t;
+div.onclick = () => toggleType(att, t);
 
       baseCol.appendChild(div);
     });
@@ -743,3 +1091,5 @@ for(let l=1;l<=9;l++){
 
 populateDropdown();
 render();
+</script>
+</body>
