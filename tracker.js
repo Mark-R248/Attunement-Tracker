@@ -1,249 +1,3 @@
-<head>
-<style>
-body {
-  font-family: Arial, sans-serif;
-  background: #f4f4f4;
-  margin: 0;
-  color: #222;
-}
-
-h1 {
-  text-align: center;
-  margin-bottom: 15px;
-}
-
-#topBar {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-bottom: 15px;
-}
-
-select, button {
-  padding: 8px;
-  font-weight: bold;
-}
-
-#cards {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-}
-
-@media (min-width: 768px) {
-  #cards { grid-template-columns: repeat(2, 1fr); }
-}
-
-@media (min-width: 1400px) {
-  #cards { grid-template-columns: repeat(3, 1fr); }
-}
-
-.card {
-  background: #fff;
-  border: 1px solid #d0d0d0;
-  border-radius: 12px;
-  padding: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
-}
-
-.cardHeader {
-  display: flex;
-  justify-content: space-between;
-  font-weight: bold;
-  font-size: 15px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #e6e6e6;
-}
-
-.bar {
-  height: 10px;
-  background: #e2e2e2;
-  border-radius: 999px;
-  overflow: hidden;
-  margin-top: 8px;
-}
-
-.barFill {
-  height: 100%;
-  background: #6b6b6b;
-  transition: width 0.35s ease;
-}
-
-.manaRow {
-  font-size: 12px;
-  margin-top: 6px;
-  opacity: 0.85;
-}
-
-.cardBody {
-  display: grid;
-  grid-template-columns: 0.8fr 1.2fr;
-  gap: 12px;
-  margin-top: 10px;
-}
-
-.spellGrid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 6px;
-  align-content: start;
-}
-
-.spellGrid button {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-
-  width: 100%;
-  aspect-ratio: 1 / 1;
-
-  font-size: 14px;
-  font-weight: bold;
-  border: 1px solid #cfcfcf;
-  background: #fafafa;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.spellGrid button:hover { background: #eeeeee; transform: translateY(-1px); }
-.spellGrid button:active { background: #e2e2e2; transform: translateY(0px); }
-
-.typePanel {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
-.typeHeader {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.6px;
-  text-align: center;
-  opacity: 0.6;
-  margin-bottom: 6px;
-}
-
-.typeCol {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.typeTag {
-  background: #eeeeee;
-  border: 1px solid #d6d6d6;
-  border-radius: 7px;
-  padding: 7px;
-  font-size: 12px;
-  text-align: center;
-  cursor: pointer;
-}
-
-.typeTag:hover { background: #e6e6e6; }
-.typeTag.active { background: #dcdcdc; box-shadow: inset 0 0 8px rgba(255,0,0,0.9); }
-
-.compoundBtn {
-  font-size: 10px;
-  padding: 4px 6px;
-  border: 1px solid #333;
-  border-radius: 6px;
-  opacity: 0.6;
-}
-
-.compoundBtn.glow { box-shadow: 0 0 6px #aaa; opacity: 0.9; }
-.compoundBtn.active { background: #6b6b6b; color: white; opacity: 1; }
-
-/* MATCHING MAGIC ATTUNEMENTS */
-.card.matchingType {
-  box-shadow: 0 0 10px rgba(100,150,255,0.45);
-  border-color: #7fa8ff;
-}
-
-/* COMPOUND MAGIC */
-#compoundSection{
-  margin-top:20px;
-  padding-top:10px;
-  border-top:2px solid #d0d0d0;
-}
-
-.compoundHeader{
-  font-weight:bold;
-  margin-bottom:8px;
-  text-align:center;
-}
-
-#compoundGrid{
-  display:grid;
-  grid-template-columns:repeat(auto-fill,minmax(120px,1fr));
-  gap:8px;
-}
-
-.compoundCard{
-  border:1px solid #bbb;
-  border-radius:8px;
-  padding:6px;
-  text-align:center;
-  font-size:11px;
-  background:#f9f9f9;
-}
-
-.compoundCard.active{
-  background:#6b6b6b;
-  color:white;
-}
-
-.compoundTypes{
-  font-size:10px;
-  opacity:0.7;
-  margin-top:2px;
-}
-  
-/* MANUAL CAPACITY CHANGES */
-.capacityControls{
-  display:flex;
-  gap:4px;
-  align-items:center;
-}
-
-.capacityControls button{
-  font-size:10px;
-  padding:2px 6px;
-  border:1px solid #aaa;
-  border-radius:6px;
-  cursor:pointer;
-}
-
-.capacityControls span{
-  font-size:11px;
-  opacity:0.8;
-  margin:0 4px;
-}
-</style>
-</head>
-
-<body>
-
-<div id="topBar">
-  <select id="attunementSelect"></select>
-  <input id="startManaInput" type="number" min="1" value="20" style="width:80px" />
-  <button onclick="addAttunement()">Add</button>
-  <button onclick="refillHalf()">Half Refill</button>
-  <button onclick="refillFull()">Full Refill</button>
-</div>
-
-<div id="cards"></div>
-
- <div id="compoundSection">
-  <div class="compoundHeader">
-    Available Compound Magic
-  </div>
-
-  <div id="compoundGrid"></div>
-</div>
-  
-<script>
 const SPELL_COSTS = {1:1,2:3,3:12,4:20,5:72,6:120,7:460,8:720,9:2600};
 
 const BASE_TYPES = ["Air","Earth","Fire","Water","Light","Umbral","Death","Life","Motion","Enhance","Perceive","Mental"];
@@ -462,6 +216,32 @@ function addAttunement(){
 
   render();
 }
+  
+  function getConflicts(selectedType) {
+  const conflicts = new Set();
+
+  for (const pair of TYPE_OPPOSITES) {
+    if (pair.groupA.includes(selectedType)) {
+      pair.groupB.forEach(t => conflicts.add(t));
+    }
+    if (pair.groupB.includes(selectedType)) {
+      pair.groupA.forEach(t => conflicts.add(t));
+    }
+  }
+
+  return conflicts;
+}
+  
+  const TYPE_OPPOSITES = [
+  {
+    groupA: ["Air", "Light", "Motion"],
+    groupB: ["Earth", "Umbral", "Enhance"]
+  },
+  {
+    groupA: ["Fire", "Death", "Perceive"],
+    groupB: ["Water", "Life", "Mental"]
+  }
+];
 
 /* ATTUNEMENT GROWTH */
 function cast(attName, level){
@@ -671,6 +451,18 @@ if(att.selectedTypes.length === 2){
 const alreadyUsed = globalTypeQueue.some(obj => obj.type === type);
 
 if (alreadyUsed) return; // block duplicate selection entirely
+
+// add new selection
+// get conflicting types
+const conflicts = getConflicts(type);
+
+// remove conflicting types from ALL attunements
+Object.values(attunements).forEach(a => {
+  a.selectedTypes = a.selectedTypes.filter(t => !conflicts.has(t));
+});
+
+// clean global queue of conflicts
+globalTypeQueue = globalTypeQueue.filter(obj => !conflicts.has(obj.type));
 
 // add new selection
 att.selectedTypes.push(type);
@@ -1024,6 +816,16 @@ const div = document.createElement("div");
 div.className = "typeTag";
 
 const isSelected = att.selectedTypes.includes(t);
+      
+const conflicts = new Set();
+
+att.selectedTypes.forEach(t => {
+  getConflicts(t).forEach(c => conflicts.add(c));
+});
+
+if (conflicts.has(t)) {
+  div.classList.add("conflict");
+}
 
 if (isSelected) {
   div.classList.add("active");
@@ -1091,5 +893,3 @@ div.onclick = () => toggleType(att, t);
 
 populateDropdown();
 render();
-</script>
-</body>
