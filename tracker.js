@@ -320,29 +320,35 @@ for (const att of contributors) {
 
   const typePool = new Map();
 
-  for (const att of contributors){
+for (const att of contributors){
 
-    const sharedTypes =
-      att.selectedTypes.filter(t =>
-        spellTypes.includes(t)
-      );
+  const unlocked =
+    isTopazOrHigher(att.maxMana);
 
-    if (sharedTypes.length === 0) continue;
+  const unlockedTypes =
+    getUnlockedTypes(att, unlocked);
 
-    const perType =
-      costPerContributor /
-      sharedTypes.length;
+  const sharedTypes =
+    spellTypes.filter(t =>
+      unlockedTypes.has(t)
+    );
 
-    for (const t of sharedTypes){
+  if (sharedTypes.length === 0) continue;
 
-      typePool.set(
-        t,
-        (typePool.get(t) || 0) + perType
-      );
+  const perType =
+    costPerContributor /
+    sharedTypes.length;
 
-    }
+  for (const t of sharedTypes){
+
+    typePool.set(
+      t,
+      (typePool.get(t) || 0) + perType
+    );
 
   }
+
+}
 
   // ------------------------------------
   // STEP 3 — apply mana cost
@@ -359,7 +365,7 @@ for (const att of contributors) {
   }
 
 // ------------------------------------
-// STEP 4 — apply growth to unlocked types only
+// STEP 4 — apply growth to unlocked types
 // ------------------------------------
 
 for (const att of Object.values(attunements)){
@@ -372,8 +378,10 @@ for (const att of Object.values(attunements)){
   const unlockedTypes =
     getUnlockedTypes(att, unlocked);
 
-  // Only check currently available types
-  for (const t of unlockedTypes){
+  // Check spell types directly
+  for (const t of spellTypes){
+
+    if (!unlockedTypes.has(t)) continue;
 
     const pool = typePool.get(t);
 
