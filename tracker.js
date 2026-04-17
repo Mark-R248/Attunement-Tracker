@@ -4,61 +4,31 @@
 
 const SPELL_COSTS = { 1:1, 2:3, 3:12, 4:20, 5:72, 6:120, 7:460, 8:720, 9:2600 };
 
-const BASE_TYPES = [
-  "Air","Earth","Fire","Water","Light","Umbral",
-  "Death","Life","Motion","Enhance","Perceive","Mental"
-];
-
-// Each entry: [name, typeA, typeB]
 const COMPOUNDS = [
-  ["Acuity","Motion","Mental"],
-  ["Adaptation","Life","Motion"],
-  ["Alteration","Earth","Perceive"],
-  ["Banishment","Light","Death"],
-  ["Blight","Air","Death"],
-  ["Blood","Water","Life"],
-  ["Bone","Earth","Death"],
-  ["Breath","Air","Life"],
-  ["Chaos","Death","Motion"],
-  ["Clarity","Water","Mental"],
-  ["Coercion","Enhance","Perceive"],
-  ["Communication","Air","Mental"],
-  ["Constellations","Light","Motion"],
-  ["Dawn","Fire","Enhance"],
-  ["Density","Earth","Enhance"],
-  ["Destiny","Light","Mental"],
-  ["Dreams","Umbral","Perceive"],
-  ["Enervation","Earth","Umbral"],
-  ["Heat","Fire","Motion"],
-  ["Ice","Water","Enhance"],
-  ["Incineration","Fire","Death"],
-  ["Lies","Fire","Perceive"],
-  ["Lightning","Air","Fire"],
-  ["Madness","Death","Perceive"],
-  ["Memory","Enhance","Mental"],
-  ["Metal","Earth","Fire"],
-  ["Peace","Water","Light"],
-  ["Poison","Water","Umbral"],
-  ["Protection","Life","Enhance"],
-  ["Purity","Fire","Light"],
-  ["Rain","Air","Water"],
-  ["Ruin","Death","Enhance"],
-  ["Sand","Earth","Water"],
-  ["Secrets","Umbral","Mental"],
-  ["Shade","Umbral","Life"],
-  ["Sight","Light","Perceive"],
-  ["Sound","Air","Perceive"],
-  ["Spirit","Light","Life"],
-  ["Supremacy","Umbral","Death"],
-  ["Tides","Water","Motion"],
-  ["Time","Motion","Perceive"],
-  ["Tranquillity","Earth","Mental"],
-  ["Transcendence","Life","Mental"],
-  ["Travel","Air","Motion"],
-  ["Vitality","Air","Light"],
-  ["Void","Umbral","Enhance"],
-  ["War","Fire","Umbral"],
-  ["Wood","Earth","Life"]
+  ["Acuity","Motion","Mental"],       ["Adaptation","Life","Motion"],
+  ["Alteration","Earth","Perceive"],  ["Banishment","Light","Death"],
+  ["Blight","Air","Death"],           ["Blood","Water","Life"],
+  ["Bone","Earth","Death"],           ["Breath","Air","Life"],
+  ["Chaos","Death","Motion"],         ["Clarity","Water","Mental"],
+  ["Coercion","Enhance","Perceive"],  ["Communication","Air","Mental"],
+  ["Constellations","Light","Motion"],["Dawn","Fire","Enhance"],
+  ["Density","Earth","Enhance"],      ["Destiny","Light","Mental"],
+  ["Dreams","Umbral","Perceive"],     ["Enervation","Earth","Umbral"],
+  ["Heat","Fire","Motion"],           ["Ice","Water","Enhance"],
+  ["Incineration","Fire","Death"],    ["Lies","Fire","Perceive"],
+  ["Lightning","Air","Fire"],         ["Madness","Death","Perceive"],
+  ["Memory","Enhance","Mental"],      ["Metal","Earth","Fire"],
+  ["Peace","Water","Light"],          ["Poison","Water","Umbral"],
+  ["Protection","Life","Enhance"],    ["Purity","Fire","Light"],
+  ["Rain","Air","Water"],             ["Ruin","Death","Enhance"],
+  ["Sand","Earth","Water"],           ["Secrets","Umbral","Mental"],
+  ["Shade","Umbral","Life"],          ["Sight","Light","Perceive"],
+  ["Sound","Air","Perceive"],         ["Spirit","Light","Life"],
+  ["Supremacy","Umbral","Death"],     ["Tides","Water","Motion"],
+  ["Time","Motion","Perceive"],       ["Tranquillity","Earth","Mental"],
+  ["Transcendence","Life","Mental"],  ["Travel","Air","Motion"],
+  ["Vitality","Air","Light"],         ["Void","Umbral","Enhance"],
+  ["War","Fire","Umbral"],            ["Wood","Earth","Life"]
 ];
 
 const ATTUNEMENTS = {
@@ -112,13 +82,12 @@ const ATTUNEMENTS = {
   Whisper:      { Fire:1, Umbral:3, Perceive:1 }
 };
 
-// Conflicting type pairs — selecting one side blocks the other
 const TYPE_OPPOSITES = [
   { groupA: ["Air","Light","Motion"],    groupB: ["Earth","Umbral","Enhance"] },
   { groupA: ["Fire","Death","Perceive"], groupB: ["Water","Life","Mental"]    }
 ];
 
-// Rank thresholds: [minMana, rankName, growthRate]
+// [minMana, rankName, growthRate]
 const RANK_THRESHOLDS = [
   [0,      "Pearl",    60],
   [60,     "Garnet",   120],
@@ -133,14 +102,17 @@ const MAX_MANA_CAP = 500000;
 
 /* ============================================================
    STATE
+   characters: { [id]: { id, name, attunements: { [attName]: attObj },
+                          typeQueue: [{att, type}], pendingDelete } }
+   activeCharId: string | null
    ============================================================ */
 
-let attunements = {};
-let globalTypeQueue = [];  // [{ att: name, type }], max length 2
-let pendingDelete = null;
+let characters   = {};
+let activeCharId = null;
+let _nextCharId  = 1;
 
 /* ============================================================
-   RANK & GROWTH HELPERS
+   RANK / GROWTH HELPERS
    ============================================================ */
 
 function getRankEntry(maxMana) {
@@ -151,16 +123,16 @@ function getRankEntry(maxMana) {
   return entry;
 }
 
-function getRank(maxMana)       { return getRankEntry(maxMana)[1]; }
-function getGrowthRate(maxMana) { return getRankEntry(maxMana)[2]; }
+function getRank(maxMana)         { return getRankEntry(maxMana)[1]; }
+function getGrowthRate(maxMana)   { return getRankEntry(maxMana)[2]; }
 function isTopazOrHigher(maxMana) { return maxMana >= 2160; }
 
 function getMaxSpellLevel(maxMana) {
-  if (maxMana < 60)    return 2;   // Pearl
-  if (maxMana < 360)   return 4;   // Garnet
-  if (maxMana < 2160)  return 6;   // Amber
-  if (maxMana < 12960) return 8;   // Topaz
-  return 9;                        // Emerald+
+  if (maxMana < 60)    return 2;
+  if (maxMana < 360)   return 4;
+  if (maxMana < 2160)  return 6;
+  if (maxMana < 12960) return 8;
+  return 9;
 }
 
 /* ============================================================
@@ -178,180 +150,199 @@ function getConflicts(type) {
 
 function getUnlockedTypes(att, unlocked) {
   const entry = ATTUNEMENTS[att.name];
-  const set = new Set();
-  for (const [t, value] of Object.entries(entry)) {
-    if (value === 1)               set.add(t);
-    if (value === 3 && unlocked)   set.add(t);
+  const set   = new Set();
+  for (const [t, v] of Object.entries(entry)) {
+    if (v === 1)             set.add(t);
+    if (v === 3 && unlocked) set.add(t);
   }
   return set;
 }
 
-function getSelectedTypesGlobal() {
+// Selected types for ONE character
+function getSelectedTypesForChar(char) {
   const set = new Set();
-  for (const att of Object.values(attunements)) {
+  for (const att of Object.values(char.attunements)) {
     att.selectedTypes.forEach(t => set.add(t));
   }
   return set;
 }
 
-function getTypePresenceMap() {
+function getTypePresenceMapForChar(char) {
   const map = new Map();
-  for (const att of Object.values(attunements)) {
+  for (const att of Object.values(char.attunements)) {
     att.selectedTypes.forEach(t => map.set(t, (map.get(t) || 0) + 1));
   }
   return map;
 }
 
-function getAvailableTypesGlobal() {
+function getAvailableTypesForChar(char) {
   const set = new Set();
-  for (const att of Object.values(attunements)) {
-    const entry = ATTUNEMENTS[att.name];
+  for (const att of Object.values(char.attunements)) {
+    const entry    = ATTUNEMENTS[att.name];
     const unlocked = isTopazOrHigher(att.maxMana);
-    for (const [t, value] of Object.entries(entry)) {
-      if (value === 1)             set.add(t);
-      if (value === 3 && unlocked) set.add(t);
+    for (const [t, v] of Object.entries(entry)) {
+      if (v === 1)             set.add(t);
+      if (v === 3 && unlocked) set.add(t);
     }
   }
   return set;
 }
 
 /* ============================================================
-   ATTUNEMENT INIT
+   CHARACTER MANAGEMENT
+   ============================================================ */
+
+function createCharacter(name) {
+  const id = "char_" + (_nextCharId++);
+  characters[id] = {
+    id,
+    name:         name || "Character " + (_nextCharId - 1),
+    attunements:  {},
+    typeQueue:    [],
+    pendingDelete: null
+  };
+  return id;
+}
+
+function addCharacter() {
+  const id = createCharacter();
+  activeCharId = id;
+  renderAll();
+}
+
+function removeCharacter(id) {
+  delete characters[id];
+  if (activeCharId === id) {
+    activeCharId = Object.keys(characters)[0] || null;
+  }
+  renderAll();
+}
+
+function setActiveChar(id) {
+  activeCharId = id;
+  renderAll();
+}
+
+function renameCharacter(id, name) {
+  if (characters[id]) characters[id].name = name;
+  // Update tab label without full re-render
+  const tab = document.querySelector(`.charTab[data-id="${id}"] .tabName`);
+  if (tab) tab.textContent = name;
+}
+
+/* ============================================================
+   ATTUNEMENT MANAGEMENT (per character)
    ============================================================ */
 
 function initAtt(name, startMana) {
-  return {
-    name,
-    maxMana: startMana,
-    mana: startMana,
-    spent: 0,
-    growth: 0,
-    selectedTypes: []
-  };
+  return { name, maxMana: startMana, mana: startMana, spent: 0, growth: 0, selectedTypes: [] };
+}
+
+function addAttunement(charId) {
+  const char = characters[charId];
+  if (!char) return;
+
+  const sel  = document.getElementById("attSel_" + charId);
+  const mIn  = document.getElementById("attMana_" + charId);
+  if (!sel || !mIn) return;
+
+  const name = sel.value;
+  if (!name || char.attunements[name]) return;
+
+  const raw      = parseInt(mIn.value, 10);
+  const startMana = Math.max(1, isNaN(raw) ? 20 : raw);
+  char.attunements[name] = initAtt(name, startMana);
+  renderCharPanel();
+}
+
+function deleteAttunement(charId, attName) {
+  const char = characters[charId];
+  if (!char) return;
+
+  delete char.attunements[attName];
+  char.typeQueue = char.typeQueue.filter(obj => obj.att !== attName);
+  renderCharPanel();
 }
 
 /* ============================================================
-   ADD / DELETE
+   REFILL (per character)
    ============================================================ */
 
-function addAttunement() {
-  const name = document.getElementById("attunementSelect").value;
-  if (!name || attunements[name]) return;
-
-  const raw = parseInt(document.getElementById("startManaInput").value, 10);
-  const startMana = Math.max(1, isNaN(raw) ? 100 : raw);
-
-  attunements[name] = initAtt(name, startMana);
-  render();
-}
-
-function confirmDelete(attName, btn) {
-  if (pendingDelete === attName) {
-    delete attunements[attName];
-    globalTypeQueue = globalTypeQueue.filter(obj => obj.att !== attName);
-    pendingDelete = null;
-    render();
-    return;
-  }
-
-  // Reset any other confirm buttons
-  document.querySelectorAll("button").forEach(b => {
-    if (b.textContent === "Confirm?") b.textContent = "Delete";
-  });
-
-  pendingDelete = attName;
-  btn.textContent = "Confirm?";
-
-  setTimeout(() => {
-    if (pendingDelete === attName) {
-      btn.textContent = "Delete";
-      pendingDelete = null;
-    }
-  }, 4000);
-}
-
-/* ============================================================
-   REFILL
-   ============================================================ */
-
-function refillFull() {
-  for (const att of Object.values(attunements)) {
+function refillFull(charId) {
+  const char = characters[charId];
+  if (!char) return;
+  for (const att of Object.values(char.attunements)) {
     att.mana  = att.maxMana;
     att.spent = 0;
   }
-  render();
+  renderCharPanel();
 }
 
-function refillHalf() {
-  for (const att of Object.values(attunements)) {
+function refillHalf(charId) {
+  const char = characters[charId];
+  if (!char) return;
+  for (const att of Object.values(char.attunements)) {
     const restore = Math.min(att.spent, att.maxMana * 0.5);
     att.mana  = Math.min(att.maxMana, att.mana + restore);
     att.spent -= restore;
   }
-  render();
+  renderCharPanel();
 }
 
 /* ============================================================
-   CAST
+   CAST (single character, independent)
    ============================================================ */
 
-function cast(attName, level) {
-  const caster = attunements[attName];
+function cast(charId, attName, level) {
+  const char   = characters[charId];
+  if (!char) return;
+  const caster = char.attunements[attName];
   if (!caster) return;
 
   const cost       = SPELL_COSTS[level];
-  const spellTypes = [...getSelectedTypesGlobal()];
+  const spellTypes = [...getSelectedTypesForChar(char)];
   if (spellTypes.length === 0) return;
 
-  /* --- Step 1: find contributors --- */
+  /* Step 1 — contributors within this character's attunements */
   const contributors = new Set();
-
-  // Caster eligibility check
   {
     const unlocked      = isTopazOrHigher(caster.maxMana);
     const casterTypes   = getUnlockedTypes(caster, unlocked);
     const casterCanCast = spellTypes.length === 1
       ? casterTypes.has(spellTypes[0])
       : caster.selectedTypes.some(t => spellTypes.includes(t));
-
     if (!casterCanCast) return;
     contributors.add(caster);
   }
 
-  // Additional contributors only in compound (multi-type) mode
   if (spellTypes.length > 1) {
-    for (const att of Object.values(attunements)) {
+    for (const att of Object.values(char.attunements)) {
       if (att === caster) continue;
-      if (att.selectedTypes.some(t => spellTypes.includes(t))) {
-        contributors.add(att);
-      }
+      if (att.selectedTypes.some(t => spellTypes.includes(t))) contributors.add(att);
     }
   }
 
   const contributorList    = Array.from(contributors);
   const costPerContributor = cost / contributorList.length;
 
-  // Abort if any contributor can't afford their share
   for (const att of contributorList) {
     if (att.mana < Math.ceil(costPerContributor)) return;
   }
 
-  /* --- Step 2: build type cost pool --- */
+  /* Step 2 — type pool */
   const typePool = new Map();
-  for (const t of spellTypes) {
-    typePool.set(t, cost / spellTypes.length);
-  }
+  for (const t of spellTypes) typePool.set(t, cost / spellTypes.length);
 
-  /* --- Step 3: deduct mana --- */
+  /* Step 3 — deduct mana */
   for (const att of contributorList) {
-    const loss = Math.ceil(costPerContributor);
-    att.mana  -= loss;
-    att.spent += loss;
+    const loss  = Math.ceil(costPerContributor);
+    att.mana   -= loss;
+    att.spent  += loss;
   }
 
-  /* --- Step 4: apply growth --- */
-  for (const att of Object.values(attunements)) {
-    const unlocked        = isTopazOrHigher(att.maxMana);
+  /* Step 4 — growth across all attunements of this character */
+  for (const att of Object.values(char.attunements)) {
+    const unlocked         = isTopazOrHigher(att.maxMana);
     const attUnlockedTypes = getUnlockedTypes(att, unlocked);
 
     let totalGrowth = 0;
@@ -368,7 +359,6 @@ function cast(attName, level) {
       att.growth  -= 1;
       att.maxMana += 1;
       att.mana    += 1;
-
       if (att.maxMana >= MAX_MANA_CAP) {
         att.maxMana = MAX_MANA_CAP;
         att.mana    = Math.min(att.mana, MAX_MANA_CAP);
@@ -378,89 +368,84 @@ function cast(attName, level) {
     }
   }
 
-  render();
+  renderCharPanel();
 }
 
 /* ============================================================
-   TYPE SELECTION
+   TYPE SELECTION (per character)
    ============================================================ */
 
-function toggleType(att, type) {
-  // Clear a compound selection before allowing single-type picking
+function toggleType(charId, att, type) {
+  const char = characters[charId];
+  if (!char) return;
+
   if (att.selectedTypes.length === 2) {
     att.selectedTypes = [];
-    globalTypeQueue   = globalTypeQueue.filter(obj => obj.att !== att.name);
+    char.typeQueue    = char.typeQueue.filter(obj => obj.att !== att.name);
   }
 
   const alreadySelected = att.selectedTypes.includes(type);
 
   if (alreadySelected) {
     att.selectedTypes = att.selectedTypes.filter(t => t !== type);
-    globalTypeQueue   = globalTypeQueue.filter(
+    char.typeQueue    = char.typeQueue.filter(
       obj => !(obj.att === att.name && obj.type === type)
     );
   } else {
-    // Block if this type is already selected globally
-    if (globalTypeQueue.some(obj => obj.type === type)) return;
+    if (char.typeQueue.some(obj => obj.type === type)) return;
 
-    // Remove conflicting types from all attunements and the queue
     const conflicts = getConflicts(type);
-    for (const a of Object.values(attunements)) {
+    for (const a of Object.values(char.attunements)) {
       a.selectedTypes = a.selectedTypes.filter(t => !conflicts.has(t));
     }
-    globalTypeQueue = globalTypeQueue.filter(obj => !conflicts.has(obj.type));
+    char.typeQueue = char.typeQueue.filter(obj => !conflicts.has(obj.type));
 
     att.selectedTypes.push(type);
-    globalTypeQueue.push({ att: att.name, type });
+    char.typeQueue.push({ att: att.name, type });
 
-    // Enforce global max of 2 selections
-    if (globalTypeQueue.length > 2) {
-      const removed    = globalTypeQueue.shift();
-      const removedAtt = attunements[removed.att];
+    if (char.typeQueue.length > 2) {
+      const removed    = char.typeQueue.shift();
+      const removedAtt = char.attunements[removed.att];
       if (removedAtt) {
-        removedAtt.selectedTypes = removedAtt.selectedTypes.filter(
-          t => t !== removed.type
-        );
+        removedAtt.selectedTypes = removedAtt.selectedTypes.filter(t => t !== removed.type);
       }
     }
   }
 
-  render();
+  renderCharPanel();
 }
 
-function selectCompound(att, typeA, typeB) {
-  // Clear this attunement's current selections
+function selectCompound(charId, att, typeA, typeB) {
+  const char = characters[charId];
+  if (!char) return;
+
   att.selectedTypes = [];
-  globalTypeQueue   = globalTypeQueue.filter(obj => obj.att !== att.name);
+  char.typeQueue    = char.typeQueue.filter(obj => obj.att !== att.name);
 
   att.selectedTypes.push(typeA, typeB);
-  globalTypeQueue.push({ att: att.name, type: typeA }, { att: att.name, type: typeB });
+  char.typeQueue.push({ att: att.name, type: typeA }, { att: att.name, type: typeB });
 
-  // Enforce global max of 2
-  while (globalTypeQueue.length > 2) {
-    const removed    = globalTypeQueue.shift();
-    const removedAtt = attunements[removed.att];
+  while (char.typeQueue.length > 2) {
+    const removed    = char.typeQueue.shift();
+    const removedAtt = char.attunements[removed.att];
     if (removedAtt) {
-      removedAtt.selectedTypes = removedAtt.selectedTypes.filter(
-        t => t !== removed.type
-      );
+      removedAtt.selectedTypes = removedAtt.selectedTypes.filter(t => t !== removed.type);
     }
   }
 
-  render();
+  renderCharPanel();
 }
 
 /* ============================================================
    RENDER HELPERS
    ============================================================ */
 
-function renderSpellGrid(att, selectedGlobal) {
-  const spellGrid       = document.createElement("div");
-  spellGrid.className   = "spellGrid";
-
-  const spellTypes      = [...selectedGlobal];
-  const maxLevel        = getMaxSpellLevel(att.maxMana);
-  const unlocked        = isTopazOrHigher(att.maxMana);
+function renderSpellGrid(charId, att, selectedGlobal) {
+  const grid             = document.createElement("div");
+  grid.className         = "spellGrid";
+  const spellTypes       = [...selectedGlobal];
+  const maxLevel         = getMaxSpellLevel(att.maxMana);
+  const unlocked         = isTopazOrHigher(att.maxMana);
   const attUnlockedTypes = getUnlockedTypes(att, unlocked);
 
   for (let l = 1; l <= 9; l++) {
@@ -474,38 +459,32 @@ function renderSpellGrid(att, selectedGlobal) {
         : false;
 
     if (typeMatch && l <= maxLevel) {
-      btn.onclick = () => cast(att.name, l);
+      btn.onclick = () => cast(charId, att.name, l);
     } else {
       btn.disabled      = true;
       btn.style.opacity = "0.3";
       btn.style.cursor  = "not-allowed";
     }
-
-    spellGrid.appendChild(btn);
+    grid.appendChild(btn);
   }
-
-  return spellGrid;
+  return grid;
 }
 
-function renderTypePanel(att, selectedGlobal) {
-  const entry    = ATTUNEMENTS[att.name];
-  const unlocked = isTopazOrHigher(att.maxMana);
+function renderTypePanel(charId, att, selectedGlobal) {
+  const entry            = ATTUNEMENTS[att.name];
+  const unlocked         = isTopazOrHigher(att.maxMana);
   const attUnlockedTypes = getUnlockedTypes(att, unlocked);
 
-  // Compute conflicts from this attunement's current selection
   const activeConflicts = new Set();
-  for (const sel of att.selectedTypes) {
-    getConflicts(sel).forEach(c => activeConflicts.add(c));
-  }
+  for (const sel of att.selectedTypes) getConflicts(sel).forEach(c => activeConflicts.add(c));
 
-  /* -- Base types column -- */
-  const baseCol    = document.createElement("div");
-  baseCol.className = "typeCol";
-
-  const baseHeader = document.createElement("div");
-  baseHeader.className   = "typeHeader";
-  baseHeader.textContent = "Base";
-  baseCol.appendChild(baseHeader);
+  /* Base column */
+  const baseCol      = document.createElement("div");
+  baseCol.className  = "typeCol";
+  const baseHdr      = document.createElement("div");
+  baseHdr.className  = "typeHeader";
+  baseHdr.textContent = "Base";
+  baseCol.appendChild(baseHdr);
 
   for (const [t, value] of Object.entries(entry)) {
     if (!unlocked && value !== 1) continue;
@@ -514,79 +493,70 @@ function renderTypePanel(att, selectedGlobal) {
     const div       = document.createElement("div");
     div.className   = "typeTag";
     div.textContent = t;
-
     if (att.selectedTypes.includes(t)) div.classList.add("active");
     if (activeConflicts.has(t))        div.classList.add("conflict");
-
-    div.onclick = () => toggleType(att, t);
+    div.onclick = () => toggleType(charId, att, t);
     baseCol.appendChild(div);
   }
 
-  /* -- Compound types column -- */
-  const compCol    = document.createElement("div");
-  compCol.className = "typeCol";
-
-  const compHeader = document.createElement("div");
-  compHeader.className   = "typeHeader";
-  compHeader.textContent = "Compound";
-  compCol.appendChild(compHeader);
+  /* Compound column */
+  const compCol      = document.createElement("div");
+  compCol.className  = "typeCol";
+  const compHdr      = document.createElement("div");
+  compHdr.className  = "typeHeader";
+  compHdr.textContent = "Compound";
+  compCol.appendChild(compHdr);
 
   for (const [name, a, b] of COMPOUNDS) {
     if (!attUnlockedTypes.has(a) || !attUnlockedTypes.has(b)) continue;
-
     const div       = document.createElement("div");
     div.className   = "compoundBtn";
     div.textContent = name;
-
-    if (att.selectedTypes.includes(a) && att.selectedTypes.includes(b)) {
-      div.classList.add("active");
-    }
-
-    div.onclick = () => selectCompound(att, a, b);
+    if (att.selectedTypes.includes(a) && att.selectedTypes.includes(b)) div.classList.add("active");
+    div.onclick = () => selectCompound(charId, att, a, b);
     compCol.appendChild(div);
   }
 
-  const typePanel    = document.createElement("div");
-  typePanel.className = "typePanel";
-  typePanel.appendChild(baseCol);
-  typePanel.appendChild(compCol);
-  return typePanel;
+  const panel      = document.createElement("div");
+  panel.className  = "typePanel";
+  panel.appendChild(baseCol);
+  panel.appendChild(compCol);
+  return panel;
 }
 
-function renderCard(att, selectedGlobal) {
+function renderAttCard(charId, att, selectedGlobal) {
   const entry   = ATTUNEMENTS[att.name];
-  const unlocked = isTopazOrHigher(att.maxMana);
   const rank    = getRank(att.maxMana);
 
   const el      = document.createElement("div");
   el.className  = "card";
+  if (Object.keys(entry).some(t => selectedGlobal.has(t))) el.classList.add("matchingType");
 
-  // Highlight if any of this attunement's types are in the global selection
-  if (Object.keys(entry).some(t => selectedGlobal.has(t))) {
-    el.classList.add("matchingType");
-  }
+  /* Header */
+  const header      = document.createElement("div");
+  header.className  = "cardHeader";
 
-  /* -- Header -- */
-  const header    = document.createElement("div");
-  header.className = "cardHeader";
+  const left        = document.createElement("div");
+  left.textContent  = att.name;
 
-  const left       = document.createElement("div");
-  left.textContent = att.name;
-
-  const right    = document.createElement("div");
-  right.className = "capacityControls";
+  const right       = document.createElement("div");
+  right.className   = "capacityControls";
 
   const rankLabel       = document.createElement("span");
   rankLabel.textContent = rank;
+  rankLabel.style.marginRight = "6px";
 
-  const input         = document.createElement("input");
-  input.type          = "text";
-  input.placeholder   = "+/- amount";
-  input.style.width   = "90px";
-  input.style.fontSize = "11px";
+  const input           = document.createElement("input");
+  input.type            = "text";
+  input.placeholder     = "+/- amount";
+  input.style.width     = "80px";
+  input.style.fontSize  = "11px";
+  input.style.padding   = "2px 4px";
+  input.style.border    = "1px solid #aaa";
+  input.style.borderRadius = "4px";
 
-  const applyBtn       = document.createElement("button");
-  applyBtn.textContent = "Apply";
+  const applyBtn        = document.createElement("button");
+  applyBtn.textContent  = "Apply";
 
   function applyCapacityChange() {
     let val = input.value.trim();
@@ -594,29 +564,38 @@ function renderCard(att, selectedGlobal) {
     if (!val.startsWith("+") && !val.startsWith("-")) val = "+" + val;
     const num = parseInt(val, 10);
     if (isNaN(num)) return;
-
-    att.maxMana = Math.max(1, Math.min(MAX_MANA_CAP, att.maxMana + num));
-    att.mana    = Math.min(att.mana, att.maxMana);
-    input.value = "";
-    render();
+    att.maxMana  = Math.max(1, Math.min(MAX_MANA_CAP, att.maxMana + num));
+    att.mana     = Math.min(att.mana, att.maxMana);
+    input.value  = "";
+    renderCharPanel();
   }
 
   applyBtn.onclick = applyCapacityChange;
   input.addEventListener("keydown", e => { if (e.key === "Enter") applyCapacityChange(); });
 
-  const deleteBtn         = document.createElement("button");
-  deleteBtn.textContent   = "Delete";
-  deleteBtn.style.marginLeft = "6px";
-  deleteBtn.onclick       = () => confirmDelete(att.name, deleteBtn);
+  const delBtn        = document.createElement("button");
+  delBtn.textContent  = "Delete";
+  delBtn.style.marginLeft = "4px";
+
+  let pendingDel = false;
+  delBtn.onclick = () => {
+    if (pendingDel) {
+      deleteAttunement(charId, att.name);
+    } else {
+      pendingDel = true;
+      delBtn.textContent = "Confirm?";
+      setTimeout(() => { if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; } }, 4000);
+    }
+  };
 
   right.appendChild(rankLabel);
   right.appendChild(input);
   right.appendChild(applyBtn);
-  right.appendChild(deleteBtn);
+  right.appendChild(delBtn);
   header.appendChild(left);
   header.appendChild(right);
 
-  /* -- Mana bar -- */
+  /* Mana bar */
   const bar      = document.createElement("div");
   bar.className  = "bar";
   const fill     = document.createElement("div");
@@ -628,11 +607,11 @@ function renderCard(att, selectedGlobal) {
   manaRow.className   = "manaRow";
   manaRow.textContent = `${att.mana}/${att.maxMana} (+${Math.min(att.growth, 0.999).toFixed(2)})`;
 
-  /* -- Body -- */
+  /* Body */
   const body      = document.createElement("div");
   body.className  = "cardBody";
-  body.appendChild(renderSpellGrid(att, selectedGlobal));
-  body.appendChild(renderTypePanel(att, selectedGlobal));
+  body.appendChild(renderSpellGrid(charId, att, selectedGlobal));
+  body.appendChild(renderTypePanel(charId, att, selectedGlobal));
 
   el.appendChild(header);
   el.appendChild(bar);
@@ -641,13 +620,13 @@ function renderCard(att, selectedGlobal) {
   return el;
 }
 
-function renderCompoundGrid(selectedGlobal) {
+function renderCompoundGrid(char) {
   const grid = document.getElementById("compoundGrid");
   if (!grid) return;
   grid.innerHTML = "";
 
-  const available    = getAvailableTypesGlobal();
-  const typePresence = getTypePresenceMap();
+  const available    = getAvailableTypesForChar(char);
+  const typePresence = getTypePresenceMapForChar(char);
 
   for (const [name, a, b] of COMPOUNDS) {
     if (!available.has(a) || !available.has(b)) continue;
@@ -659,57 +638,315 @@ function renderCompoundGrid(selectedGlobal) {
     div.className   = "compoundCard";
     div.textContent = name;
 
-    const isSelected = Object.values(attunements).some(
-      att => att.selectedTypes.includes(a) && att.selectedTypes.includes(b)
-    );
-
-    if (hasA > 0 && hasB > 0) {
-      div.classList.add("active");
-    } else if (hasA > 0 || hasB > 0) {
-      div.classList.add("glow");
-    }
-
-    div.style.cursor = "default";
+    if (hasA > 0 && hasB > 0) div.classList.add("active");
+    else if (hasA > 0 || hasB > 0) div.classList.add("glow");
 
     grid.appendChild(div);
   }
 }
 
 /* ============================================================
-   RENDER (top-level)
+   RENDER CHARACTER PANEL
    ============================================================ */
 
-function render() {
-  const wrap          = document.getElementById("cards");
-  wrap.innerHTML      = "";
+function renderCharPanel() {
+  const panel = document.getElementById("charPanel");
+  panel.innerHTML = "";
 
-  const selectedGlobal = getSelectedTypesGlobal();
-
-  for (const att of Object.values(attunements)) {
-    wrap.appendChild(renderCard(att, selectedGlobal));
+  if (!activeCharId || !characters[activeCharId]) {
+    const msg = document.createElement("div");
+    msg.id              = "noCharsMsg";
+    msg.style.textAlign = "center";
+    msg.style.padding   = "40px";
+    msg.style.color     = "#888";
+    msg.style.fontSize  = "15px";
+    msg.innerHTML = 'No characters yet. Click <strong>+ New Character</strong> to get started.';
+    panel.appendChild(msg);
+    return;
   }
 
-  renderCompoundGrid(selectedGlobal);
-}
+  const char = characters[activeCharId];
 
-/* ============================================================
-   DROPDOWN
-   ============================================================ */
+  /* ── Character header row ── */
+  const headerRow      = document.createElement("div");
+  headerRow.className  = "charPanelHeader";
 
-function populateDropdown() {
-  const sel = document.getElementById("attunementSelect");
-  sel.innerHTML = "";
+  const nameInput       = document.createElement("input");
+  nameInput.className   = "charNameInput";
+  nameInput.value       = char.name;
+  nameInput.placeholder = "Character name";
+  nameInput.oninput     = () => renameCharacter(char.id, nameInput.value);
+
+  /* Add attunement row */
+  const attAddRow      = document.createElement("div");
+  attAddRow.className  = "attAddRow";
+
+  const attSel         = document.createElement("select");
+  attSel.id            = "attSel_" + char.id;
   for (const name of Object.keys(ATTUNEMENTS)) {
     const opt       = document.createElement("option");
     opt.value       = name;
     opt.textContent = name;
-    sel.appendChild(opt);
+    attSel.appendChild(opt);
   }
+
+  const manaInput         = document.createElement("input");
+  manaInput.type          = "number";
+  manaInput.min           = "1";
+  manaInput.value         = "20";
+  manaInput.id            = "attMana_" + char.id;
+  manaInput.style.width   = "70px";
+  manaInput.placeholder   = "Start mana";
+
+  const addBtn            = document.createElement("button");
+  addBtn.textContent      = "Add Attunement";
+  addBtn.onclick          = () => addAttunement(char.id);
+
+  attAddRow.appendChild(attSel);
+  attAddRow.appendChild(manaInput);
+  attAddRow.appendChild(addBtn);
+
+  /* Refill row */
+  const refillRow      = document.createElement("div");
+  refillRow.className  = "refillRow";
+
+  const halfBtn        = document.createElement("button");
+  halfBtn.textContent  = "Half Refill";
+  halfBtn.onclick      = () => refillHalf(char.id);
+
+  const fullBtn        = document.createElement("button");
+  fullBtn.textContent  = "Full Refill";
+  fullBtn.onclick      = () => refillFull(char.id);
+
+  refillRow.appendChild(halfBtn);
+  refillRow.appendChild(fullBtn);
+
+  headerRow.appendChild(nameInput);
+  headerRow.appendChild(attAddRow);
+  panel.appendChild(headerRow);
+  panel.appendChild(refillRow);
+
+  /* ── Cards ── */
+  const cardsWrap      = document.createElement("div");
+  cardsWrap.id         = "cards";
+
+  const selectedGlobal = getSelectedTypesForChar(char);
+
+  if (Object.keys(char.attunements).length === 0) {
+    const empty             = document.createElement("div");
+    empty.style.color       = "#999";
+    empty.style.fontSize    = "14px";
+    empty.style.padding     = "20px 0";
+    empty.textContent       = "No attunements added yet.";
+    cardsWrap.appendChild(empty);
+  } else {
+    for (const att of Object.values(char.attunements)) {
+      cardsWrap.appendChild(renderAttCard(char.id, att, selectedGlobal));
+    }
+  }
+
+  panel.appendChild(cardsWrap);
+
+  /* ── Compound section ── */
+  if (Object.keys(char.attunements).length > 0) {
+    const compSection      = document.createElement("div");
+    compSection.id         = "compoundSection";
+
+    const compHdr          = document.createElement("div");
+    compHdr.className      = "compoundHeader";
+    compHdr.textContent    = "Available Compound Magic";
+
+    const compGrid         = document.createElement("div");
+    compGrid.id            = "compoundGrid";
+
+    compSection.appendChild(compHdr);
+    compSection.appendChild(compGrid);
+    panel.appendChild(compSection);
+
+    renderCompoundGrid(char);
+  }
+}
+
+/* ============================================================
+   RENDER TABS
+   ============================================================ */
+
+function renderTabs() {
+  const bar     = document.getElementById("charTabBar");
+  bar.innerHTML = "";
+
+  for (const char of Object.values(characters)) {
+    const tab      = document.createElement("div");
+    tab.className  = "charTab" + (char.id === activeCharId ? " active" : "");
+    tab.dataset.id = char.id;
+
+    let holdTimer = null;
+    let isEditing = false;
+
+    /* Tab click (only if not editing) */
+    tab.onclick = () => {
+      if (!isEditing) {
+        setActiveChar(char.id);
+      }
+    };
+
+    const nameInput = document.createElement("input");
+    nameInput.className = "tabName";
+    nameInput.value = char.name || "Character";
+
+    nameInput.style.border = "none";
+    nameInput.style.background = "transparent";
+    nameInput.style.fontWeight = "bold";
+    nameInput.style.fontSize = "13px";
+    nameInput.style.width = "120px";
+    nameInput.style.outline = "none";
+    nameInput.readOnly = true;
+
+    /* HOLD TO EDIT */
+    nameInput.addEventListener("mousedown", (e) => {
+      e.stopPropagation();
+
+      holdTimer = setTimeout(() => {
+        isEditing = true;
+        nameInput.readOnly = false;
+        nameInput.focus();
+        nameInput.select();
+      }, 500); // hold duration
+    });
+
+    nameInput.addEventListener("mouseup", () => {
+      clearTimeout(holdTimer);
+    });
+
+    nameInput.addEventListener("mouseleave", () => {
+      clearTimeout(holdTimer);
+    });
+
+    /* Save name */
+    nameInput.addEventListener("blur", () => {
+      nameInput.readOnly = true;
+      isEditing = false;
+      renameCharacter(char.id, nameInput.value);
+    });
+
+    nameInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        nameInput.blur();
+      }
+    });
+
+    const closeSpan      = document.createElement("span");
+    closeSpan.className  = "tabClose";
+    closeSpan.textContent = "✕";
+    closeSpan.title      = "Remove character";
+
+    let pendingDelete = false;
+
+closeSpan.onclick = (e) => {
+  e.stopPropagation();
+
+  if (pendingDelete) {
+    removeCharacter(char.id);
+  } else {
+    pendingDelete = true;
+    closeSpan.textContent = "Confirm?";
+    closeSpan.style.color = "#c00";
+
+    setTimeout(() => {
+      if (pendingDelete) {
+        pendingDelete = false;
+        closeSpan.textContent = "✕";
+        closeSpan.style.color = "";
+      }
+    }, 4000);
+  }
+};
+
+    tab.appendChild(nameInput);
+    tab.appendChild(closeSpan);
+    bar.appendChild(tab);
+  }
+
+  const addBtn        = document.createElement("button");
+  addBtn.id           = "addCharBtn";
+  addBtn.textContent  = "+ Add Character";
+  addBtn.onclick      = addCharacter;
+
+  bar.appendChild(addBtn);
+}
+
+/* ============================================================
+   FULL RENDER
+   ============================================================ */
+
+function renderAll() {
+  renderTabs();
+  renderCharPanel();
+}
+
+/* ============================================================
+   SAVE / LOAD
+   ============================================================ */
+
+function exportSave() {
+  const data = {
+    version:     1,
+    _nextCharId,
+    activeCharId,
+    characters:  JSON.parse(JSON.stringify(characters))
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = "magic-tracker-save.json";
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast("Save exported!");
+}
+
+function importSave(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader     = new FileReader();
+  reader.onload    = (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.characters || !data.version) throw new Error("Invalid save file.");
+
+      characters   = data.characters;
+      activeCharId = data.activeCharId;
+      _nextCharId  = data._nextCharId || 1;
+
+      // Ensure activeCharId is valid
+      if (!characters[activeCharId]) {
+        activeCharId = Object.keys(characters)[0] || null;
+      }
+
+      renderAll();
+      showToast("Save loaded!");
+    } catch (err) {
+      showToast("Failed to load: " + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = ""; // allow re-importing same file
+}
+
+/* ============================================================
+   TOAST
+   ============================================================ */
+
+function showToast(msg) {
+  const t     = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
 }
 
 /* ============================================================
    INIT
    ============================================================ */
 
-populateDropdown();
-render();
+renderAll();
