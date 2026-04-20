@@ -100,11 +100,12 @@ const RANK_THRESHOLDS = [
 
 const MAX_MANA_CAP = 500000;
 
+// Whisper emulation unlocks at Garnet (60), tertiary from emulated target at Emerald (12960)
+const WHISPER_EMULATE_MIN  = 60;
+const WHISPER_TERTIARY_MIN = 12960;
+
 /* ============================================================
    STATE
-   characters: { [id]: { id, name, attunements: { [attName]: attObj },
-                          typeQueue: [{att, type}], pendingDelete } }
-   activeCharId: string | null
    ============================================================ */
 
 let characters   = {};
@@ -136,6 +137,30 @@ function getMaxSpellLevel(maxMana) {
 }
 
 /* ============================================================
+   WHISPER HELPERS
+   ============================================================ */
+
+function whisperCanEmulate(att) {
+  return att.name === "Whisper" && att.maxMana >= WHISPER_EMULATE_MIN;
+}
+
+// The displayed/selectable types Whisper shows when emulating.
+// Tertiary of the target is included only when Whisper is Emerald+.
+function getWhisperEmulatedDisplayTypes(att) {
+  if (!att.emulationTarget) return new Set();
+  const targetEntry = ATTUNEMENTS[att.emulationTarget];
+  if (!targetEntry) return new Set();
+
+  const withTertiary = att.maxMana >= WHISPER_TERTIARY_MIN;
+  const set = new Set();
+  for (const [t, v] of Object.entries(targetEntry)) {
+    if (v === 1)                 set.add(t);
+    if (v === 3 && withTertiary) set.add(t);
+  }
+  return set;
+}
+
+/* ============================================================
    TYPE HELPERS
    ============================================================ */
 
@@ -148,6 +173,7 @@ function getConflicts(type) {
   return conflicts;
 }
 
+// True unlocked types from the ATTUNEMENTS table — used for growth calculations.
 function getUnlockedTypes(att, unlocked) {
   const entry = ATTUNEMENTS[att.name];
   const set   = new Set();
@@ -158,7 +184,16 @@ function getUnlockedTypes(att, unlocked) {
   return set;
 }
 
-// Selected types for ONE character
+// Types shown in the UI type panel and used for type selection.
+// For a Whisper this is the emulated display types.
+function getSelectableTypes(att) {
+  if (att.name === "Whisper" && whisperCanEmulate(att) && att.emulationTarget) {
+    return getWhisperEmulatedDisplayTypes(att);
+  }
+  const unlocked = isTopazOrHigher(att.maxMana);
+  return getUnlockedTypes(att, unlocked);
+}
+
 function getSelectedTypesForChar(char) {
   const set = new Set();
   for (const att of Object.values(char.attunements)) {
@@ -178,12 +213,7 @@ function getTypePresenceMapForChar(char) {
 function getAvailableTypesForChar(char) {
   const set = new Set();
   for (const att of Object.values(char.attunements)) {
-    const entry    = ATTUNEMENTS[att.name];
-    const unlocked = isTopazOrHigher(att.maxMana);
-    for (const [t, v] of Object.entries(entry)) {
-      if (v === 1)             set.add(t);
-      if (v === 3 && unlocked) set.add(t);
-    }
+    getSelectableTypes(att).forEach(t => set.add(t));
   }
   return set;
 }
@@ -196,10 +226,9 @@ function createCharacter(name) {
   const id = "char_" + (_nextCharId++);
   characters[id] = {
     id,
-    name:         name || "Character " + (_nextCharId - 1),
-    attunements:  {},
-    typeQueue:    [],
-    pendingDelete: null
+    name:          name || "Character " + (_nextCharId - 1),
+    attunements:   {},
+    typeQueue:     [],
   };
   return id;
 }
@@ -212,9 +241,7 @@ function addCharacter() {
 
 function removeCharacter(id) {
   delete characters[id];
-  if (activeCharId === id) {
-    activeCharId = Object.keys(characters)[0] || null;
-  }
+  if (activeCharId === id) activeCharId = Object.keys(characters)[0] || null;
   renderAll();
 }
 
@@ -225,31 +252,38 @@ function setActiveChar(id) {
 
 function renameCharacter(id, name) {
   if (characters[id]) characters[id].name = name;
-  // Update tab label without full re-render
   const tab = document.querySelector(`.charTab[data-id="${id}"] .tabName`);
   if (tab) tab.textContent = name;
 }
 
 /* ============================================================
-   ATTUNEMENT MANAGEMENT (per character)
+   ATTUNEMENT MANAGEMENT
    ============================================================ */
 
 function initAtt(name, startMana) {
-  return { name, maxMana: startMana, mana: startMana, spent: 0, growth: 0, selectedTypes: [] };
+  return {
+    name,
+    maxMana:         startMana,
+    mana:            startMana,
+    spent:           0,
+    growth:          0,
+    selectedTypes:   [],
+    emulationTarget: null   // Whisper only
+  };
 }
 
 function addAttunement(charId) {
   const char = characters[charId];
   if (!char) return;
 
-  const sel  = document.getElementById("attSel_" + charId);
-  const mIn  = document.getElementById("attMana_" + charId);
+  const sel = document.getElementById("attSel_" + charId);
+  const mIn = document.getElementById("attMana_" + charId);
   if (!sel || !mIn) return;
 
   const name = sel.value;
   if (!name || char.attunements[name]) return;
 
-  const raw      = parseInt(mIn.value, 10);
+  const raw       = parseInt(mIn.value, 10);
   const startMana = Math.max(1, isNaN(raw) ? 20 : raw);
   char.attunements[name] = initAtt(name, startMana);
   renderCharPanel();
@@ -258,21 +292,32 @@ function addAttunement(charId) {
 function deleteAttunement(charId, attName) {
   const char = characters[charId];
   if (!char) return;
-
   delete char.attunements[attName];
   char.typeQueue = char.typeQueue.filter(obj => obj.att !== attName);
   renderCharPanel();
 }
 
+function setWhisperEmulation(charId, target) {
+  const char = characters[charId];
+  if (!char || !char.attunements["Whisper"]) return;
+  const whisper = char.attunements["Whisper"];
+
+  // Clear any selections belonging to Whisper when target changes
+  whisper.selectedTypes    = [];
+  char.typeQueue           = char.typeQueue.filter(obj => obj.att !== "Whisper");
+  whisper.emulationTarget  = target || null;
+  renderCharPanel();
+}
+
 /* ============================================================
-   REFILL (per character)
+   REFILL
    ============================================================ */
 
 function refillFull(charId) {
   const char = characters[charId];
   if (!char) return;
   for (const att of Object.values(char.attunements)) {
-    att.mana  = att.maxMana;
+    att.mana = att.maxMana;
     att.spent = 0;
   }
   renderCharPanel();
@@ -290,7 +335,7 @@ function refillHalf(charId) {
 }
 
 /* ============================================================
-   CAST (single character, independent)
+   CAST
    ============================================================ */
 
 function cast(charId, attName, level) {
@@ -300,16 +345,15 @@ function cast(charId, attName, level) {
   if (!caster) return;
 
   const cost       = SPELL_COSTS[level];
-  const spellTypes = [...getSelectedTypesForChar(char)];
+  const spellTypes = [...getSelectedTypesForChar(char)]; // displayed types
   if (spellTypes.length === 0) return;
 
-  /* Step 1 — contributors within this character's attunements */
+  /* ── Step 1: find contributors ── */
   const contributors = new Set();
   {
-    const unlocked      = isTopazOrHigher(caster.maxMana);
-    const casterTypes   = getUnlockedTypes(caster, unlocked);
-    const casterCanCast = spellTypes.length === 1
-      ? casterTypes.has(spellTypes[0])
+    const casterSelectable = getSelectableTypes(caster);
+    const casterCanCast    = spellTypes.length === 1
+      ? casterSelectable.has(spellTypes[0])
       : caster.selectedTypes.some(t => spellTypes.includes(t));
     if (!casterCanCast) return;
     contributors.add(caster);
@@ -329,27 +373,50 @@ function cast(charId, attName, level) {
     if (att.mana < Math.ceil(costPerContributor)) return;
   }
 
-  /* Step 2 — type pool */
-  const typePool = new Map();
-  for (const t of spellTypes) typePool.set(t, cost / spellTypes.length);
+  /* ── Step 2: build real growth pool ──
+     Normal att: each of its selected displayed types contributes cost/totalTypes to that type.
+     Whisper emulating: each of its selected displayed types instead contributes
+       (cost/totalTypes) * 0.5 to Fire AND (cost/totalTypes) * 0.5 to Perceive.
+     Result: Map<realType, mana-amount> used for growth in step 4.
+  */
+  const growthPool = new Map(); // realType -> mana amount
 
-  /* Step 3 — deduct mana */
+  for (const att of contributorList) {
+    const isEmulatingWhisper = att.name === "Whisper" && att.emulationTarget;
+
+    for (const displayedType of att.selectedTypes) {
+      if (!spellTypes.includes(displayedType)) continue;
+      const share = cost / spellTypes.length;
+
+      if (isEmulatingWhisper) {
+        // Displayed type is Lies-in-disguise: split evenly into Fire + Perceive
+        growthPool.set("Fire",    (growthPool.get("Fire")     || 0) + share * 0.5);
+        growthPool.set("Perceive",(growthPool.get("Perceive") || 0) + share * 0.5);
+      } else {
+        growthPool.set(displayedType, (growthPool.get(displayedType) || 0) + share);
+      }
+    }
+  }
+
+  /* ── Step 3: deduct mana ── */
   for (const att of contributorList) {
     const loss  = Math.ceil(costPerContributor);
     att.mana   -= loss;
     att.spent  += loss;
   }
 
-  /* Step 4 — growth across all attunements of this character */
+  /* ── Step 4: apply growth ──
+     Each attunement grows based on which real types from the growthPool it has unlocked.
+     Whisper's true unlocked types are Fire, Perceive (and Umbral if Topaz+), so it naturally
+     grows from Fire+Perceive entries in the pool, exactly as intended.
+  */
   for (const att of Object.values(char.attunements)) {
     const unlocked         = isTopazOrHigher(att.maxMana);
     const attUnlockedTypes = getUnlockedTypes(att, unlocked);
 
     let totalGrowth = 0;
-    for (const t of spellTypes) {
-      if (!attUnlockedTypes.has(t)) continue;
-      const pool = typePool.get(t);
-      if (pool) totalGrowth += pool;
+    for (const [realType, amount] of growthPool) {
+      if (attUnlockedTypes.has(realType)) totalGrowth += amount;
     }
     if (totalGrowth === 0) continue;
 
@@ -372,7 +439,7 @@ function cast(charId, attName, level) {
 }
 
 /* ============================================================
-   TYPE SELECTION (per character)
+   TYPE SELECTION
    ============================================================ */
 
 function toggleType(charId, att, type) {
@@ -437,23 +504,76 @@ function selectCompound(charId, att, typeA, typeB) {
 }
 
 /* ============================================================
-   RENDER HELPERS
+   RENDER — WHISPER EMULATION ROW
+   ============================================================ */
+
+function renderWhisperEmulateRow(charId, att) {
+  const row       = document.createElement("div");
+  row.className   = "whisperEmulateRow";
+
+  if (!whisperCanEmulate(att)) {
+    const note       = document.createElement("span");
+    note.className   = "emulateNote";
+    note.textContent = "Emulation unlocks at Garnet rank.";
+    row.appendChild(note);
+    return row;
+  }
+
+  const label       = document.createElement("label");
+  label.textContent = "Emulating:";
+
+  const sel = document.createElement("select");
+
+  const noneOpt       = document.createElement("option");
+  noneOpt.value       = "";
+  noneOpt.textContent = "— None —";
+  sel.appendChild(noneOpt);
+
+  for (const name of Object.keys(ATTUNEMENTS)) {
+    if (name === "Whisper") continue;
+    const opt       = document.createElement("option");
+    opt.value       = name;
+    opt.textContent = name;
+    if (att.emulationTarget === name) opt.selected = true;
+    sel.appendChild(opt);
+  }
+
+  sel.onchange = () => setWhisperEmulation(charId, sel.value || null);
+
+  row.appendChild(label);
+  row.appendChild(sel);
+
+  if (att.emulationTarget) {
+    const emulatedTypes = getWhisperEmulatedDisplayTypes(att);
+    const typeWrap      = document.createElement("span");
+    for (const t of emulatedTypes) {
+      const badge       = document.createElement("span");
+      badge.className   = "whisperTypeBadge";
+      badge.textContent = t;
+      typeWrap.appendChild(badge);
+    }
+  }
+
+  return row;
+}
+
+/* ============================================================
+   RENDER — SPELL GRID
    ============================================================ */
 
 function renderSpellGrid(charId, att, selectedGlobal) {
-  const grid             = document.createElement("div");
-  grid.className         = "spellGrid";
-  const spellTypes       = [...selectedGlobal];
-  const maxLevel         = getMaxSpellLevel(att.maxMana);
-  const unlocked         = isTopazOrHigher(att.maxMana);
-  const attUnlockedTypes = getUnlockedTypes(att, unlocked);
+  const grid         = document.createElement("div");
+  grid.className     = "spellGrid";
+  const spellTypes   = [...selectedGlobal];
+  const maxLevel     = getMaxSpellLevel(att.maxMana);
+  const selectable   = getSelectableTypes(att);
 
   for (let l = 1; l <= 9; l++) {
     const btn = document.createElement("button");
     btn.innerHTML = `<div>${l}</div><div style="font-size:10px">(${SPELL_COSTS[l]})</div>`;
 
     const typeMatch = spellTypes.length === 1
-      ? attUnlockedTypes.has(spellTypes[0])
+      ? selectable.has(spellTypes[0])
       : spellTypes.length > 1
         ? att.selectedTypes.some(t => spellTypes.includes(t))
         : false;
@@ -470,26 +590,26 @@ function renderSpellGrid(charId, att, selectedGlobal) {
   return grid;
 }
 
-function renderTypePanel(charId, att, selectedGlobal) {
-  const entry            = ATTUNEMENTS[att.name];
-  const unlocked         = isTopazOrHigher(att.maxMana);
-  const attUnlockedTypes = getUnlockedTypes(att, unlocked);
+/* ============================================================
+   RENDER — TYPE PANEL
+   ============================================================ */
+
+function renderTypePanel(charId, att) {
+  const selectable      = getSelectableTypes(att);
+  const isEmulating     = att.name === "Whisper" && att.emulationTarget && whisperCanEmulate(att);
 
   const activeConflicts = new Set();
   for (const sel of att.selectedTypes) getConflicts(sel).forEach(c => activeConflicts.add(c));
 
-  /* Base column */
-  const baseCol      = document.createElement("div");
-  baseCol.className  = "typeCol";
-  const baseHdr      = document.createElement("div");
-  baseHdr.className  = "typeHeader";
-  baseHdr.textContent = "Base";
+  /* Base / Emulated column */
+  const baseCol       = document.createElement("div");
+  baseCol.className   = "typeCol";
+  const baseHdr       = document.createElement("div");
+  baseHdr.className   = "typeHeader";
+  baseHdr.textContent = isEmulating ? "Emulated" : "Base";
   baseCol.appendChild(baseHdr);
 
-  for (const [t, value] of Object.entries(entry)) {
-    if (!unlocked && value !== 1) continue;
-    if (unlocked  && value !== 1 && value !== 3) continue;
-
+  for (const t of selectable) {
     const div       = document.createElement("div");
     div.className   = "typeTag";
     div.textContent = t;
@@ -499,16 +619,25 @@ function renderTypePanel(charId, att, selectedGlobal) {
     baseCol.appendChild(div);
   }
 
+  if (isEmulating && selectable.size === 0) {
+    const note           = document.createElement("div");
+    note.style.fontSize  = "11px";
+    note.style.color     = "#999";
+    note.style.fontStyle = "italic";
+    note.textContent     = "No types available.";
+    baseCol.appendChild(note);
+  }
+
   /* Compound column */
-  const compCol      = document.createElement("div");
-  compCol.className  = "typeCol";
-  const compHdr      = document.createElement("div");
-  compHdr.className  = "typeHeader";
+  const compCol       = document.createElement("div");
+  compCol.className   = "typeCol";
+  const compHdr       = document.createElement("div");
+  compHdr.className   = "typeHeader";
   compHdr.textContent = "Compound";
   compCol.appendChild(compHdr);
 
   for (const [name, a, b] of COMPOUNDS) {
-    if (!attUnlockedTypes.has(a) || !attUnlockedTypes.has(b)) continue;
+    if (!selectable.has(a) || !selectable.has(b)) continue;
     const div       = document.createElement("div");
     div.className   = "compoundBtn";
     div.textContent = name;
@@ -517,20 +646,28 @@ function renderTypePanel(charId, att, selectedGlobal) {
     compCol.appendChild(div);
   }
 
-  const panel      = document.createElement("div");
-  panel.className  = "typePanel";
+  const panel       = document.createElement("div");
+  panel.className   = "typePanel";
   panel.appendChild(baseCol);
   panel.appendChild(compCol);
   return panel;
 }
 
-function renderAttCard(charId, att, selectedGlobal) {
-  const entry   = ATTUNEMENTS[att.name];
-  const rank    = getRank(att.maxMana);
+/* ============================================================
+   RENDER — ATTUNEMENT CARD
+   ============================================================ */
 
-  const el      = document.createElement("div");
-  el.className  = "card";
-  if (Object.keys(entry).some(t => selectedGlobal.has(t))) el.classList.add("matchingType");
+function renderAttCard(charId, att, selectedGlobal) {
+  const rank   = getRank(att.maxMana);
+  const el     = document.createElement("div");
+  el.className = "card";
+
+  const isWhisper = att.name === "Whisper";
+  if (isWhisper) el.classList.add("whisperCard");
+
+  // Highlight if any selectable types match the current global selection
+  const selectable = getSelectableTypes(att);
+  if ([...selectable].some(t => selectedGlobal.has(t))) el.classList.add("matchingType");
 
   /* Header */
   const header      = document.createElement("div");
@@ -542,21 +679,21 @@ function renderAttCard(charId, att, selectedGlobal) {
   const right       = document.createElement("div");
   right.className   = "capacityControls";
 
-  const rankLabel       = document.createElement("span");
-  rankLabel.textContent = rank;
+  const rankLabel         = document.createElement("span");
+  rankLabel.textContent   = rank;
   rankLabel.style.marginRight = "6px";
 
-  const input           = document.createElement("input");
-  input.type            = "text";
-  input.placeholder     = "+/- amount";
-  input.style.width     = "80px";
-  input.style.fontSize  = "11px";
-  input.style.padding   = "2px 4px";
-  input.style.border    = "1px solid #aaa";
+  const input              = document.createElement("input");
+  input.type               = "text";
+  input.placeholder        = "+/- amount";
+  input.style.width        = "80px";
+  input.style.fontSize     = "11px";
+  input.style.padding      = "2px 4px";
+  input.style.border       = "1px solid #aaa";
   input.style.borderRadius = "4px";
 
-  const applyBtn        = document.createElement("button");
-  applyBtn.textContent  = "Apply";
+  const applyBtn          = document.createElement("button");
+  applyBtn.textContent    = "Apply";
 
   function applyCapacityChange() {
     let val = input.value.trim();
@@ -564,17 +701,17 @@ function renderAttCard(charId, att, selectedGlobal) {
     if (!val.startsWith("+") && !val.startsWith("-")) val = "+" + val;
     const num = parseInt(val, 10);
     if (isNaN(num)) return;
-    att.maxMana  = Math.max(1, Math.min(MAX_MANA_CAP, att.maxMana + num));
-    att.mana     = Math.min(att.mana, att.maxMana);
-    input.value  = "";
+    att.maxMana = Math.max(1, Math.min(MAX_MANA_CAP, att.maxMana + num));
+    att.mana    = Math.min(att.mana, att.maxMana);
+    input.value = "";
     renderCharPanel();
   }
 
   applyBtn.onclick = applyCapacityChange;
   input.addEventListener("keydown", e => { if (e.key === "Enter") applyCapacityChange(); });
 
-  const delBtn        = document.createElement("button");
-  delBtn.textContent  = "Delete";
+  const delBtn            = document.createElement("button");
+  delBtn.textContent      = "Delete";
   delBtn.style.marginLeft = "4px";
 
   let pendingDel = false;
@@ -584,7 +721,9 @@ function renderAttCard(charId, att, selectedGlobal) {
     } else {
       pendingDel = true;
       delBtn.textContent = "Confirm?";
-      setTimeout(() => { if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; } }, 4000);
+      setTimeout(() => {
+        if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; }
+      }, 4000);
     }
   };
 
@@ -607,18 +746,23 @@ function renderAttCard(charId, att, selectedGlobal) {
   manaRow.className   = "manaRow";
   manaRow.textContent = `${att.mana}/${att.maxMana} (+${Math.min(att.growth, 0.999).toFixed(2)})`;
 
-  /* Body */
   const body      = document.createElement("div");
   body.className  = "cardBody";
   body.appendChild(renderSpellGrid(charId, att, selectedGlobal));
-  body.appendChild(renderTypePanel(charId, att, selectedGlobal));
+  body.appendChild(renderTypePanel(charId, att));
 
   el.appendChild(header);
   el.appendChild(bar);
   el.appendChild(manaRow);
+  if (isWhisper) el.appendChild(renderWhisperEmulateRow(charId, att));
   el.appendChild(body);
+
   return el;
 }
+
+/* ============================================================
+   RENDER — COMPOUND GRID
+   ============================================================ */
 
 function renderCompoundGrid(char) {
   const grid = document.getElementById("compoundGrid");
@@ -638,15 +782,15 @@ function renderCompoundGrid(char) {
     div.className   = "compoundCard";
     div.textContent = name;
 
-    if (hasA > 0 && hasB > 0) div.classList.add("active");
-    else if (hasA > 0 || hasB > 0) div.classList.add("glow");
+    if (hasA > 0 && hasB > 0)       div.classList.add("active");
+    else if (hasA > 0 || hasB > 0)  div.classList.add("glow");
 
     grid.appendChild(div);
   }
 }
 
 /* ============================================================
-   RENDER CHARACTER PANEL
+   RENDER — CHARACTER PANEL
    ============================================================ */
 
 function renderCharPanel() {
@@ -654,8 +798,7 @@ function renderCharPanel() {
   panel.innerHTML = "";
 
   if (!activeCharId || !characters[activeCharId]) {
-    const msg = document.createElement("div");
-    msg.id              = "noCharsMsg";
+    const msg           = document.createElement("div");
     msg.style.textAlign = "center";
     msg.style.padding   = "40px";
     msg.style.color     = "#888";
@@ -667,9 +810,9 @@ function renderCharPanel() {
 
   const char = characters[activeCharId];
 
-  /* ── Character header row ── */
-  const headerRow      = document.createElement("div");
-  headerRow.className  = "charPanelHeader";
+  /* Header */
+  const headerRow     = document.createElement("div");
+  headerRow.className = "charPanelHeader";
 
   const nameInput       = document.createElement("input");
   nameInput.className   = "charNameInput";
@@ -677,16 +820,16 @@ function renderCharPanel() {
   nameInput.placeholder = "Character name";
   nameInput.oninput     = () => renameCharacter(char.id, nameInput.value);
 
-  /* Add attunement row */
-  const attAddRow      = document.createElement("div");
-  attAddRow.className  = "attAddRow";
+  const attAddRow     = document.createElement("div");
+  attAddRow.className = "attAddRow";
 
-  const attSel         = document.createElement("select");
-  attSel.id            = "attSel_" + char.id;
+  const attSel  = document.createElement("select");
+  attSel.id     = "attSel_" + char.id;
   for (const name of Object.keys(ATTUNEMENTS)) {
     const opt       = document.createElement("option");
     opt.value       = name;
     opt.textContent = name;
+    if (char.attunements[name]) opt.disabled = true;
     attSel.appendChild(opt);
   }
 
@@ -696,7 +839,6 @@ function renderCharPanel() {
   manaInput.value         = "20";
   manaInput.id            = "attMana_" + char.id;
   manaInput.style.width   = "70px";
-  manaInput.placeholder   = "Start mana";
 
   const addBtn            = document.createElement("button");
   addBtn.textContent      = "Add Attunement";
@@ -706,38 +848,35 @@ function renderCharPanel() {
   attAddRow.appendChild(manaInput);
   attAddRow.appendChild(addBtn);
 
-  /* Refill row */
-  const refillRow      = document.createElement("div");
-  refillRow.className  = "refillRow";
+  const refillRow     = document.createElement("div");
+  refillRow.className = "refillRow";
 
-  const halfBtn        = document.createElement("button");
-  halfBtn.textContent  = "Half Refill";
-  halfBtn.onclick      = () => refillHalf(char.id);
+  const halfBtn       = document.createElement("button");
+  halfBtn.textContent = "Half Refill";
+  halfBtn.onclick     = () => refillHalf(char.id);
 
-  const fullBtn        = document.createElement("button");
-  fullBtn.textContent  = "Full Refill";
-  fullBtn.onclick      = () => refillFull(char.id);
+  const fullBtn       = document.createElement("button");
+  fullBtn.textContent = "Full Refill";
+  fullBtn.onclick     = () => refillFull(char.id);
 
   refillRow.appendChild(halfBtn);
   refillRow.appendChild(fullBtn);
-
   headerRow.appendChild(nameInput);
   headerRow.appendChild(attAddRow);
   panel.appendChild(headerRow);
   panel.appendChild(refillRow);
 
-  /* ── Cards ── */
-  const cardsWrap      = document.createElement("div");
-  cardsWrap.id         = "cards";
-
+  /* Cards */
+  const cardsWrap     = document.createElement("div");
+  cardsWrap.id        = "cards";
   const selectedGlobal = getSelectedTypesForChar(char);
 
   if (Object.keys(char.attunements).length === 0) {
-    const empty             = document.createElement("div");
-    empty.style.color       = "#999";
-    empty.style.fontSize    = "14px";
-    empty.style.padding     = "20px 0";
-    empty.textContent       = "No attunements added yet.";
+    const empty           = document.createElement("div");
+    empty.style.color     = "#999";
+    empty.style.fontSize  = "14px";
+    empty.style.padding   = "20px 0";
+    empty.textContent     = "No attunements added yet.";
     cardsWrap.appendChild(empty);
   } else {
     for (const att of Object.values(char.attunements)) {
@@ -747,28 +886,23 @@ function renderCharPanel() {
 
   panel.appendChild(cardsWrap);
 
-  /* ── Compound section ── */
   if (Object.keys(char.attunements).length > 0) {
-    const compSection      = document.createElement("div");
-    compSection.id         = "compoundSection";
-
-    const compHdr          = document.createElement("div");
-    compHdr.className      = "compoundHeader";
-    compHdr.textContent    = "Available Compound Magic";
-
-    const compGrid         = document.createElement("div");
-    compGrid.id            = "compoundGrid";
-
+    const compSection   = document.createElement("div");
+    compSection.id      = "compoundSection";
+    const compHdr       = document.createElement("div");
+    compHdr.className   = "compoundHeader";
+    compHdr.textContent = "Available Compound Magic";
+    const compGrid      = document.createElement("div");
+    compGrid.id         = "compoundGrid";
     compSection.appendChild(compHdr);
     compSection.appendChild(compGrid);
     panel.appendChild(compSection);
-
     renderCompoundGrid(char);
   }
 }
 
 /* ============================================================
-   RENDER TABS
+   RENDER — TABS
    ============================================================ */
 
 function renderTabs() {
@@ -782,85 +916,60 @@ function renderTabs() {
 
     let holdTimer = null;
     let isEditing = false;
+    tab.onclick = () => { if (!isEditing) setActiveChar(char.id); };
 
-    /* Tab click (only if not editing) */
-    tab.onclick = () => {
-      if (!isEditing) {
-        setActiveChar(char.id);
-      }
-    };
-
-    const nameInput = document.createElement("input");
-    nameInput.className = "tabName";
-    nameInput.value = char.name || "Character";
-
-    nameInput.style.border = "none";
+    const nameInput         = document.createElement("input");
+    nameInput.className     = "tabName";
+    nameInput.value         = char.name || "Character";
+    nameInput.style.border  = "none";
     nameInput.style.background = "transparent";
     nameInput.style.fontWeight = "bold";
-    nameInput.style.fontSize = "13px";
-    nameInput.style.width = "120px";
-    nameInput.style.outline = "none";
-    nameInput.readOnly = true;
+    nameInput.style.fontSize   = "13px";
+    nameInput.style.width      = "120px";
+    nameInput.style.outline    = "none";
+    nameInput.readOnly         = true;
 
-    /* HOLD TO EDIT */
-    nameInput.addEventListener("mousedown", (e) => {
+    nameInput.addEventListener("mousedown", e => {
       e.stopPropagation();
-
       holdTimer = setTimeout(() => {
         isEditing = true;
         nameInput.readOnly = false;
         nameInput.focus();
         nameInput.select();
-      }, 500); // hold duration
+      }, 500);
     });
-
-    nameInput.addEventListener("mouseup", () => {
-      clearTimeout(holdTimer);
-    });
-
-    nameInput.addEventListener("mouseleave", () => {
-      clearTimeout(holdTimer);
-    });
-
-    /* Save name */
+    nameInput.addEventListener("mouseup",    () => clearTimeout(holdTimer));
+    nameInput.addEventListener("mouseleave", () => clearTimeout(holdTimer));
     nameInput.addEventListener("blur", () => {
       nameInput.readOnly = true;
       isEditing = false;
       renameCharacter(char.id, nameInput.value);
     });
+    nameInput.addEventListener("keydown", e => { if (e.key === "Enter") nameInput.blur(); });
 
-    nameInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") {
-        nameInput.blur();
-      }
-    });
-
-    const closeSpan      = document.createElement("span");
-    closeSpan.className  = "tabClose";
+    const closeSpan       = document.createElement("span");
+    closeSpan.className   = "tabClose";
     closeSpan.textContent = "✕";
-    closeSpan.title      = "Remove character";
+    closeSpan.title       = "Remove character";
 
     let pendingDelete = false;
-
-closeSpan.onclick = (e) => {
-  e.stopPropagation();
-
-  if (pendingDelete) {
-    removeCharacter(char.id);
-  } else {
-    pendingDelete = true;
-    closeSpan.textContent = "Confirm?";
-    closeSpan.style.color = "#c00";
-
-    setTimeout(() => {
+    closeSpan.onclick = e => {
+      e.stopPropagation();
       if (pendingDelete) {
-        pendingDelete = false;
-        closeSpan.textContent = "✕";
-        closeSpan.style.color = "";
+        removeCharacter(char.id);
+      } else {
+        pendingDelete = true;
+        closeSpan.textContent = "Confirm?";
+        closeSpan.style.color = "#c00";
+        setTimeout(() => {
+          if (pendingDelete) {
+            pendingDelete = false;
+            closeSpan.textContent = "✕";
+            closeSpan.style.color = "";
+          }
+        }, 4000);
       }
-    }, 4000);
-  }
-};
+    };
 
     tab.appendChild(nameInput);
     tab.appendChild(closeSpan);
@@ -871,7 +980,6 @@ closeSpan.onclick = (e) => {
   addBtn.id           = "addCharBtn";
   addBtn.textContent  = "+ Add Character";
   addBtn.onclick      = addCharacter;
-
   bar.appendChild(addBtn);
 }
 
@@ -908,22 +1016,15 @@ function exportSave() {
 function importSave(event) {
   const file = event.target.files[0];
   if (!file) return;
-
-  const reader     = new FileReader();
-  reader.onload    = (e) => {
+  const reader  = new FileReader();
+  reader.onload = e => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.characters || !data.version) throw new Error("Invalid save file.");
-
       characters   = data.characters;
       activeCharId = data.activeCharId;
       _nextCharId  = data._nextCharId || 1;
-
-      // Ensure activeCharId is valid
-      if (!characters[activeCharId]) {
-        activeCharId = Object.keys(characters)[0] || null;
-      }
-
+      if (!characters[activeCharId]) activeCharId = Object.keys(characters)[0] || null;
       renderAll();
       showToast("Save loaded!");
     } catch (err) {
@@ -931,7 +1032,7 @@ function importSave(event) {
     }
   };
   reader.readAsText(file);
-  event.target.value = ""; // allow re-importing same file
+  event.target.value = "";
 }
 
 /* ============================================================
@@ -939,7 +1040,7 @@ function importSave(event) {
    ============================================================ */
 
 function showToast(msg) {
-  const t     = document.getElementById("toast");
+  const t       = document.getElementById("toast");
   t.textContent = msg;
   t.classList.add("show");
   setTimeout(() => t.classList.remove("show"), 2200);
