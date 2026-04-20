@@ -104,6 +104,27 @@ const MAX_MANA_CAP = 500000;
 const WHISPER_EMULATE_MIN  = 60;
 const WHISPER_TERTIARY_MIN = 12960;
 
+// Emulation cost and max castable level, keyed by Whisper's rank threshold (minMana).
+// Whisper at Garnet (60) emulates Pearl → max spell level 2, cost = SPELL_COSTS[2] = 3
+// Whisper at Amber  (360) emulates Garnet → max spell level 4, cost = SPELL_COSTS[4] = 20
+// Whisper at Topaz  (2160) emulates Amber → max spell level 6, cost = SPELL_COSTS[6] = 120
+// Whisper at Emerald(12960) emulates Topaz → max spell level 8, cost = SPELL_COSTS[8] = 720
+// Whisper at Sapphire+(77760) emulates Emerald → max spell level 9, cost = SPELL_COSTS[9] = 2600
+const WHISPER_EMULATE_TIERS = [
+  { minMana: 77760, maxCastLevel: 9, cost: 2600 }, // Sapphire+ → emulates Emerald
+  { minMana: 12960, maxCastLevel: 8, cost: 720  }, // Emerald   → emulates Topaz
+  { minMana:  2160, maxCastLevel: 6, cost: 120  }, // Topaz     → emulates Amber
+  { minMana:   360, maxCastLevel: 4, cost: 20   }, // Amber     → emulates Garnet
+  { minMana:    60, maxCastLevel: 2, cost: 3    }, // Garnet    → emulates Pearl
+];
+
+function getWhisperEmulateTier(maxMana) {
+  for (const tier of WHISPER_EMULATE_TIERS) {
+    if (maxMana >= tier.minMana) return tier;
+  }
+  return null; // Pearl — cannot emulate
+}
+
 /* ============================================================
    STATE
    ============================================================ */
@@ -111,6 +132,11 @@ const WHISPER_TERTIARY_MIN = 12960;
 let characters   = {};
 let activeCharId = null;
 let _nextCharId  = 1;
+
+// Undo stack: each entry is a deep-copy snapshot of characters taken before an action.
+// Capped at 50 — well within safe memory limits for this data size.
+const UNDO_LIMIT = 50;
+let undoStack = [];
 
 /* ============================================================
    RANK / GROWTH HELPERS
@@ -185,7 +211,7 @@ function getUnlockedTypes(att, unlocked) {
 }
 
 // Types shown in the UI type panel and used for type selection.
-// For a Whisper this is the emulated display types.
+// For an emulating Whisper this is the emulated display types, not its real Fire/Perceive/Umbral.
 function getSelectableTypes(att) {
   if (att.name === "Whisper" && whisperCanEmulate(att) && att.emulationTarget) {
     return getWhisperEmulatedDisplayTypes(att);
@@ -297,16 +323,83 @@ function deleteAttunement(charId, attName) {
   renderCharPanel();
 }
 
+function saveUndo() {
+  undoStack.push(JSON.parse(JSON.stringify(characters)));
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+}
+
+function undo() {
+  if (undoStack.length === 0) { showToast("Nothing to undo."); return; }
+  characters = undoStack.pop();
+  renderAll();
+  showToast(`Undone. (${undoStack.length} left)`);
+}
+
 function setWhisperEmulation(charId, target) {
   const char = characters[charId];
   if (!char || !char.attunements["Whisper"]) return;
   const whisper = char.attunements["Whisper"];
 
-  // Clear any selections belonging to Whisper when target changes
-  whisper.selectedTypes    = [];
-  char.typeQueue           = char.typeQueue.filter(obj => obj.att !== "Whisper");
-  whisper.emulationTarget  = target || null;
-  renderCharPanel();
+  // Clearing emulation is always free — no undo snapshot saved
+  if (!target) {
+    whisper.selectedTypes   = [];
+    char.typeQueue          = char.typeQueue.filter(obj => obj.att !== "Whisper");
+    whisper.emulationTarget = null;
+    renderAll();
+    return;
+  }
+
+  // Selecting a new target costs mana
+  const tier = getWhisperEmulateTier(whisper.maxMana);
+  if (!tier) return; // shouldn't happen — dropdown hidden at Pearl
+
+  if (whisper.mana < tier.cost) {
+    showToast(`Not enough mana! Emulation costs ${tier.cost}.`);
+    renderAll(); // re-render resets the dropdown to the previous value
+    return;
+  }
+
+  saveUndo();
+  whisper.mana   -= tier.cost;
+  whisper.spent  += tier.cost;
+
+  // Emulation cost counts as spending Fire+Perceive (Lies) mana for growth purposes.
+  // The cost is split equally between Fire and Perceive.
+  const emulateGrowthPool = new Map([
+    ["Fire",     tier.cost * 0.5],
+    ["Perceive", tier.cost * 0.5],
+  ]);
+
+  for (const att of Object.values(char.attunements)) {
+    const unlocked         = isTopazOrHigher(att.maxMana);
+    const attUnlockedTypes = getUnlockedTypes(att, unlocked);
+
+    let totalGrowth = 0;
+    for (const [realType, amount] of emulateGrowthPool) {
+      if (attUnlockedTypes.has(realType)) totalGrowth += amount;
+    }
+    if (totalGrowth === 0) continue;
+
+    att.growth += totalGrowth / getGrowthRate(att.maxMana);
+
+    while (att.growth >= 1) {
+      att.growth  -= 1;
+      att.maxMana += 1;
+      att.mana    += 1;
+      if (att.maxMana >= MAX_MANA_CAP) {
+        att.maxMana = MAX_MANA_CAP;
+        att.mana    = Math.min(att.mana, MAX_MANA_CAP);
+        att.growth  = 0;
+        break;
+      }
+    }
+  }
+
+  // Clear any Whisper selections before switching target
+  whisper.selectedTypes   = [];
+  char.typeQueue          = char.typeQueue.filter(obj => obj.att !== "Whisper");
+  whisper.emulationTarget = target;
+  renderAll();
 }
 
 /* ============================================================
@@ -373,15 +466,18 @@ function cast(charId, attName, level) {
     if (att.mana < Math.ceil(costPerContributor)) return;
   }
 
+  saveUndo();
+
   /* ── Step 2: build real growth pool ──
-     Normal att: each of its selected displayed types contributes cost/totalTypes to that type.
-     Whisper emulating: each of its selected displayed types instead contributes
-       (cost/totalTypes) * 0.5 to Fire AND (cost/totalTypes) * 0.5 to Perceive.
+     We iterate ALL attunements that have a selected type in this spell, not just
+     contributors (contributors only determines who pays mana). Every attunement
+     whose selected type appears in the spell contributes its share to the pool.
+     Whisper emulating: its selected displayed types resolve to Fire*0.5 + Perceive*0.5.
      Result: Map<realType, mana-amount> used for growth in step 4.
   */
   const growthPool = new Map(); // realType -> mana amount
 
-  for (const att of contributorList) {
+  for (const att of Object.values(char.attunements)) {
     const isEmulatingWhisper = att.name === "Whisper" && att.emulationTarget;
 
     for (const displayedType of att.selectedTypes) {
@@ -389,9 +485,8 @@ function cast(charId, attName, level) {
       const share = cost / spellTypes.length;
 
       if (isEmulatingWhisper) {
-        // Displayed type is Lies-in-disguise: split evenly into Fire + Perceive
-        growthPool.set("Fire",    (growthPool.get("Fire")     || 0) + share * 0.5);
-        growthPool.set("Perceive",(growthPool.get("Perceive") || 0) + share * 0.5);
+        growthPool.set("Fire",     (growthPool.get("Fire")     || 0) + share * 0.5);
+        growthPool.set("Perceive", (growthPool.get("Perceive") || 0) + share * 0.5);
       } else {
         growthPool.set(displayedType, (growthPool.get(displayedType) || 0) + share);
       }
@@ -435,7 +530,7 @@ function cast(charId, attName, level) {
     }
   }
 
-  renderCharPanel();
+  renderAll();
 }
 
 /* ============================================================
@@ -519,14 +614,19 @@ function renderWhisperEmulateRow(charId, att) {
     return row;
   }
 
+  const tier    = getWhisperEmulateTier(att.maxMana);
   const label       = document.createElement("label");
   label.textContent = "Emulating:";
+
+  const costNote       = document.createElement("span");
+  costNote.className   = "emulateNote";
+  costNote.textContent = `Cost: ${tier.cost} mana · max level ${tier.maxCastLevel}`;
 
   const sel = document.createElement("select");
 
   const noneOpt       = document.createElement("option");
   noneOpt.value       = "";
-  noneOpt.textContent = "— None —";
+  noneOpt.textContent = "— None (free) —";
   sel.appendChild(noneOpt);
 
   for (const name of Object.keys(ATTUNEMENTS)) {
@@ -542,6 +642,7 @@ function renderWhisperEmulateRow(charId, att) {
 
   row.appendChild(label);
   row.appendChild(sel);
+  row.appendChild(costNote);
 
   if (att.emulationTarget) {
     const emulatedTypes = getWhisperEmulatedDisplayTypes(att);
@@ -552,6 +653,12 @@ function renderWhisperEmulateRow(charId, att) {
       badge.textContent = t;
       typeWrap.appendChild(badge);
     }
+    row.appendChild(typeWrap);
+
+    const liesNote       = document.createElement("span");
+    liesNote.className   = "liesNote";
+    liesNote.textContent = "grows as: Fire + Perceive";
+    row.appendChild(liesNote);
   }
 
   return row;
@@ -565,8 +672,14 @@ function renderSpellGrid(charId, att, selectedGlobal) {
   const grid         = document.createElement("div");
   grid.className     = "spellGrid";
   const spellTypes   = [...selectedGlobal];
-  const maxLevel     = getMaxSpellLevel(att.maxMana);
   const selectable   = getSelectableTypes(att);
+
+  // Normal max level from rank; for emulating Whisper cap to the tier's maxCastLevel
+  const isEmulatingWhisper = att.name === "Whisper" && att.emulationTarget && whisperCanEmulate(att);
+  const tier         = isEmulatingWhisper ? getWhisperEmulateTier(att.maxMana) : null;
+  const maxLevel     = isEmulatingWhisper && tier
+    ? tier.maxCastLevel
+    : getMaxSpellLevel(att.maxMana);
 
   for (let l = 1; l <= 9; l++) {
     const btn = document.createElement("button");
@@ -664,6 +777,7 @@ function renderAttCard(charId, att, selectedGlobal) {
 
   const isWhisper = att.name === "Whisper";
   if (isWhisper) el.classList.add("whisperCard");
+  if (isWhisper && att.emulationTarget) el.classList.add("emulating");
 
   // Highlight if any selectable types match the current global selection
   const selectable = getSelectableTypes(att);
@@ -683,13 +797,13 @@ function renderAttCard(charId, att, selectedGlobal) {
   rankLabel.textContent   = rank;
   rankLabel.style.marginRight = "6px";
 
-  const input              = document.createElement("input");
-  input.type               = "text";
-  input.placeholder        = "+/- amount";
-  input.style.width        = "80px";
-  input.style.fontSize     = "11px";
-  input.style.padding      = "2px 4px";
-  input.style.border       = "1px solid #aaa";
+  const input             = document.createElement("input");
+  input.type              = "text";
+  input.placeholder       = "+/- amount";
+  input.style.width       = "80px";
+  input.style.fontSize    = "11px";
+  input.style.padding     = "2px 4px";
+  input.style.border      = "1px solid #aaa";
   input.style.borderRadius = "4px";
 
   const applyBtn          = document.createElement("button");
@@ -990,6 +1104,8 @@ function renderTabs() {
 function renderAll() {
   renderTabs();
   renderCharPanel();
+  const undoBtn = document.getElementById("undoBtn");
+  if (undoBtn) undoBtn.style.opacity = undoStack.length > 0 ? "1" : "0.4";
 }
 
 /* ============================================================
