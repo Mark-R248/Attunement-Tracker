@@ -672,7 +672,7 @@ function renderAttCard(charId, att, selectedGlobal) {
       deleteAttunement(charId, att.name);
     } else {
       pendingDel = true;
-      delBtn.textContent = "Confirm?";
+      delBtn.textContent = "Confirm";
       setTimeout(() => { if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; } }, 4000);
     }
   };
@@ -818,7 +818,7 @@ function renderCharPanel() {
     msg.style.padding   = "40px";
     msg.style.color     = "#666";
     msg.style.fontSize  = "15px";
-    msg.innerHTML       = 'No characters yet. Click <strong>+ Add Character</strong> to get started.';
+    msg.innerHTML       = 'No characters yet. Click <strong>Add Character</strong> to get started.';
     panel.appendChild(msg);
     return;
   }
@@ -982,8 +982,8 @@ function renderTabs() {
         removeCharacter(char.id);
       } else {
         pendingDelete = true;
-        closeSpan.textContent = "Confirm?";
-        closeSpan.style.color = "#aaa";
+        closeSpan.textContent = "Confirm";
+        closeSpan.style.color = "#c47a7a";
         setTimeout(() => {
           if (pendingDelete) {
             pendingDelete = false;
