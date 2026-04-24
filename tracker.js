@@ -661,6 +661,24 @@ function renderAttCard(charId, att, selectedGlobal) {
   row1.appendChild(dashEl);
   row1.appendChild(rankEl);
 
+  const delBtn        = document.createElement("button");
+  delBtn.textContent  = "Delete";
+  delBtn.className    = "deleteBtn";
+  delBtn.style.marginLeft = "auto";
+
+  let pendingDel = false;
+  delBtn.onclick = () => {
+    if (pendingDel) {
+      deleteAttunement(charId, att.name);
+    } else {
+      pendingDel = true;
+      delBtn.textContent = "Confirm?";
+      setTimeout(() => { if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; } }, 4000);
+    }
+  };
+
+  row1.appendChild(delBtn);
+
   /* Header row 2: capacity input | mana adjust input | delete */
   const row2     = document.createElement("div");
   row2.className = "cardHeaderRow2";
@@ -718,24 +736,8 @@ function renderAttCard(charId, att, selectedGlobal) {
     renderCharPanel();
   });
 
-  const delBtn        = document.createElement("button");
-  delBtn.textContent  = "Delete";
-  delBtn.className    = "deleteBtn";
-
-  let pendingDel = false;
-  delBtn.onclick = () => {
-    if (pendingDel) {
-      deleteAttunement(charId, att.name);
-    } else {
-      pendingDel = true;
-      delBtn.textContent = "Confirm?";
-      setTimeout(() => { if (pendingDel) { pendingDel = false; delBtn.textContent = "Delete"; } }, 4000);
-    }
-  };
-
   row2.appendChild(capGroup);
   row2.appendChild(manaGroup);
-  row2.appendChild(delBtn);
 
   header.appendChild(row1);
   header.appendChild(row2);
